@@ -1,0 +1,26 @@
+{
+    "name": "ple-sansfrontieres",
+    "host": "ple-sansfrontieres.org",
+    "protocol": "sftp",
+    "port": 22,
+    "username": "deploy",
+    "askForPassword": true,
+    "remotePath": "/ple-sansfrontieres.org",
+    "context": ".",
+    "uploadOnSave": false,
+    "syncMode": "update",
+    "ignore": [
+        "**/.git/**",
+        "**/.vscode/**",
+        "**/.idea/**",
+        "**/node_modules/**",
+        "storage/**",
+        "content/**",
+        "**/*.map"
+    ],
+    "watcher": {
+        "files": "**/*",
+        "autoUpload": false,
+        "autoDelete": false
+    }
+}

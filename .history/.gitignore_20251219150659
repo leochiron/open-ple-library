@@ -1,0 +1,12 @@
+/vendor/
+/node_modules/
+/.env
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+/storage/*
+!/storage/.gitkeep
+/content/*
+!/content/.gitkeep
+/public/assets/css/main.css.map
