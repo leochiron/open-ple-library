@@ -21,6 +21,25 @@ $cssVersion = file_exists($cssPath) ? filemtime($cssPath) : time();
 $jsPath = $docRoot !== '' ? $docRoot . $assetBase . '/js/main.js' : __DIR__ . '/../../public/assets/js/main.js';
 $jsVersion = file_exists($jsPath) ? filemtime($jsPath) : time();
 
+// Resolve logo path so it works whether assets are under /assets or /public/assets
+$siteLogo = $config['branding']['site_logo'] ?? '';
+if ($siteLogo !== '' && filter_var($siteLogo, FILTER_VALIDATE_URL)) {
+    $logoSrc = $siteLogo;
+} elseif ($siteLogo !== '' && strpos($siteLogo, '/assets/') === 0) {
+    $logoSrc = $assetBase . substr($siteLogo, strlen('/assets'));
+} elseif ($siteLogo !== '' && $siteLogo[0] === '/') {
+    $logoSrc = $siteLogo;
+} elseif ($siteLogo !== '') {
+    $logoSrc = $assetBase . '/images/' . ltrim($siteLogo, '/');
+} else {
+    $logoSrc = $assetBase . '/images/logo.png';
+}
+
+$logoFilePath = $docRoot !== '' ? $docRoot . $logoSrc : __DIR__ . '/../../public' . $logoSrc;
+if ($logoSrc !== null && $docRoot !== '' && !filter_var($logoSrc, FILTER_VALIDATE_URL) && !is_file($logoFilePath)) {
+    $logoSrc = null; // fallback to text when logo is missing
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo htmlspecialchars($i18n->getLanguage(), ENT_QUOTES, 'UTF-8'); ?>">
@@ -53,6 +72,15 @@ $jsVersion = file_exists($jsPath) ? filemtime($jsPath) : time();
 </head>
 <body>
 <header class="app-header">
+    <!-- Logout button (visible only if authenticated and auth is enabled) -->
+    <?php global $auth; if (isset($auth) && $auth->isEnabled() && $auth->isAuthenticated()): ?>
+        <form method="get" style="position: absolute; top: 24px; left: 16px; margin: 0;">
+            <button type="submit" name="logout" value="1" style="background: none; border: none; color: rgba(0, 0, 0, 0.4); cursor: pointer; font-size: 0.85rem; padding: 0; text-decoration: none; transition: color 0.2s; font-family: var(--font-body);">
+                <?php echo htmlspecialchars($i18n->t('auth.logout'), ENT_QUOTES, 'UTF-8'); ?>
+            </button>
+        </form>
+    <?php endif; ?>
+
     <div class="language-switcher">
         <label for="language" class="sr-only"><?php echo htmlspecialchars($i18n->t('nav.language'), ENT_QUOTES, 'UTF-8'); ?></label>
         <select id="language" name="lang" aria-label="<?php echo htmlspecialchars($i18n->t('nav.language'), ENT_QUOTES, 'UTF-8'); ?>">
@@ -65,14 +93,13 @@ $jsVersion = file_exists($jsPath) ? filemtime($jsPath) : time();
     </div>
     <div class="brand">
         <a href="<?php echo htmlspecialchars(buildUrl(['path' => '']), ENT_QUOTES, 'UTF-8'); ?>" class="brand-link">
-            <?php if (!empty($config['branding']['site_logo_text'])): ?>
-                <span class="brand-text"><?php echo htmlspecialchars($config['branding']['site_logo_text'], ENT_QUOTES, 'UTF-8'); ?></span>
+            <?php if (!empty($config['branding']['site_logo_text']) || $logoSrc === null): ?>
+                <span class="brand-text"><?php echo htmlspecialchars($config['branding']['site_logo_text'] ?? $config['app_name'], ENT_QUOTES, 'UTF-8'); ?></span>
             <?php else: ?>
-                <img src="<?php echo htmlspecialchars($config['branding']['site_logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars($config['app_name'], ENT_QUOTES, 'UTF-8'); ?>" class="logo">
+                <img src="<?php echo htmlspecialchars($logoSrc, ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars($config['app_name'], ENT_QUOTES, 'UTF-8'); ?>" class="logo">
             <?php endif; ?>
         </a>
     </div>
-</header>
 <main class="content-area">
     <?php echo $content; ?>
 </main>

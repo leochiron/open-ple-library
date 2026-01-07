@@ -50,8 +50,28 @@ return [
     // Footer text
     // Customize with your organization name or copyright info
     'footer_text' => 'My PLE Library · MIT License',
+
+    // Localization
+    // Update the list if you add new translations under app/Config/i18n.php
+    'default_language' => 'fr',
+    'available_languages' => ['fr', 'en', 'eo', 'ar'],
+    'language_cookie' => 'ple_lang',
+    'language_cookie_ttl' => 60 * 60 * 24 * 30,
     
     // Features - Allow downloading directories
     // Set to false to disable folder downloads
     'allow_directory_download' => true,
+
+    // Password Protection
+    // Set passwords to protect access. Leave empty array to disable authentication.
+    // Each password grants access to all content.
+    'passwords' => [
+        // 'password1',
+        // 'password2',
+    ],
+
+    // Password session
+    // Cookie name and TTL (in seconds) for authenticated sessions
+    'password_cookie' => 'ple_auth',
+    'password_cookie_ttl' => 60 * 60 * 24 * 7,  // 7 days
 ];

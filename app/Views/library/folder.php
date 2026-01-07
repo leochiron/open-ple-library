@@ -64,7 +64,7 @@ declare(strict_types=1);
                 <div class="file-row" role="listitem" data-icon="<?php echo htmlspecialchars($icon, ENT_QUOTES, 'UTF-8'); ?>" data-name="<?php echo htmlspecialchars($entry['name'], ENT_QUOTES, 'UTF-8'); ?>">
                     <div>
                         <span class="pill <?php echo $entry['is_dir'] ? 'pill-dir' : 'pill-file'; ?>"><?php echo $icon; ?></span>
-                        <a href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>" class="file-name"><?php echo htmlspecialchars($entry['name'], ENT_QUOTES, 'UTF-8'); ?></a>
+                        <a href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>" class="file-name" title="<?php echo htmlspecialchars($entry['name'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($entry['name'], ENT_QUOTES, 'UTF-8'); ?></a>
                     </div>
                     <div><?php echo htmlspecialchars(date('Y-m-d H:i', $entry['modified']), ENT_QUOTES, 'UTF-8'); ?></div>
                     <div><?php echo htmlspecialchars($entry['display_size'], ENT_QUOTES, 'UTF-8'); ?></div>
@@ -78,6 +78,7 @@ declare(strict_types=1);
                             <?php if ($isPhp): ?>
                                 <a class="btn ghost" href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>" target="_blank"><?php echo htmlspecialchars($i18n->t('file.open'), ENT_QUOTES, 'UTF-8'); ?></a>
                             <?php else: ?>
+                                <a class="btn ghost" href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.open'), ENT_QUOTES, 'UTF-8'); ?></a>
                                 <a class="btn ghost" href="<?php echo htmlspecialchars(buildUrl(['action' => 'download', 'path' => $entryPath]), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.download'), ENT_QUOTES, 'UTF-8'); ?></a>
                             <?php endif; ?>
                         <?php endif; ?>

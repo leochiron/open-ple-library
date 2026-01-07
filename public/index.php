@@ -20,6 +20,7 @@ if (strpos($reqUri, 'favicon.ico') !== false) {
 
 use App\Controllers\ErrorController;
 use App\Controllers\LibraryController;
+use App\Services\AuthService;
 use App\Services\FileSystemService;
 use App\Services\I18nService;
 use App\Services\MimeService;
@@ -61,6 +62,37 @@ $mime = new MimeService();
 $zip = new ZipService();
 $i18n = new I18nService($config, $translations);
 $i18n->detectLanguage();
+$auth = new AuthService($config['branding']);
+
+// Handle logout
+if (isset($_GET['logout'])) {
+    $auth->logout();
+    header('Location: /');
+    exit;
+}
+
+// Handle password verification
+if ($auth->isEnabled() && isset($_POST['password'])) {
+    if ($auth->verifyPassword($_POST['password'])) {
+        // Redirect to home after successful login
+        header('Location: /');
+        exit;
+    } else {
+        // Show login page with error
+        render('login', [
+            'error' => $i18n->t('auth.invalid_password'),
+        ], $i18n, $config);
+        exit;
+    }
+}
+
+// Check if authentication is required and user is not authenticated
+if ($auth->isEnabled() && !$auth->isAuthenticated()) {
+    render('login', [
+        'error' => '',
+    ], $i18n, $config);
+    exit;
+}
 
 $errorController = new ErrorController($i18n, $config);
 $libraryController = new LibraryController($fileSystem, $mime, $security, $i18n, $config);
