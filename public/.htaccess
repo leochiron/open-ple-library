@@ -1,0 +1,20 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    
+    # Don't rewrite actual files
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+    
+    # Don't process index.php again
+    RewriteCond %{REQUEST_URI} ^/index\.php
+    RewriteRule ^ - [L]
+    
+    # Extract action suffix: /path/+download or /path/+open
+    RewriteRule ^(.+)\+download/?$ /index.php?path=$1&action=download [L]
+    RewriteRule ^(.+)\+open/?$ /index.php?path=$1&action=open [L]
+    
+    # Rewrite all other requests
+    RewriteRule ^(.+)$ /index.php?path=$1 [L]
+</IfModule>
+

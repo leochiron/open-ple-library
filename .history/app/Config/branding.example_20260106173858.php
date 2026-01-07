@@ -50,8 +50,4 @@ return [
     // Footer text
     // Customize with your organization name or copyright info
     'footer_text' => 'My PLE Library · MIT License',
-    
-    // Features - Allow downloading directories
-    // Set to false to disable folder downloads
-    'allow_directory_download' => true,
 ];

@@ -1,0 +1,16 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    
+    # Don't rewrite actual files that exist
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+    
+    # Extract action from URL if present: /path/+download or /path/+open
+    RewriteRule ^(.+)\+download/?$ index.php?path=$1&action=download [L,QSA]
+    RewriteRule ^(.+)\+open/?$ index.php?path=$1&action=open [L,QSA]
+    
+    # Default: rewrite all other requests to index.php with path parameter
+    RewriteRule ^(.*)$ index.php?path=$1 [L,QSA]
+</IfModule>
+
