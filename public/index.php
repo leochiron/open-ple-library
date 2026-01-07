@@ -4,9 +4,17 @@ declare(strict_types=1);
 
 // TEMP: verbose error display for debugging. Remove or disable after diagnosis.
 error_reporting(E_ALL);
+// Suppress deprecation warnings from google/apiclient v2.0 (compatible with PHP 8.1+)
+error_reporting(error_reporting() & ~E_DEPRECATED & ~E_USER_DEPRECATED);
 ini_set('display_errors', '1');
 ini_set('log_errors', '1');
 ini_set('error_log', __DIR__ . '/../storage/php-error.log');
+
+// Load Composer autoload for external libraries (Google API client, etc.)
+$vendorAutoload = __DIR__ . '/../vendor/autoload.php';
+if (is_file($vendorAutoload)) {
+    require $vendorAutoload;
+}
 
 // Serve favicon to avoid 404 in environments without static file mapping.
 $reqUri = $_SERVER['REQUEST_URI'] ?? '';
@@ -20,8 +28,10 @@ if (strpos($reqUri, 'favicon.ico') !== false) {
 
 use App\Controllers\ErrorController;
 use App\Controllers\LibraryController;
+use App\Controllers\SyncController;
 use App\Services\AuthService;
 use App\Services\FileSystemService;
+use App\Services\GoogleDriveService;
 use App\Services\I18nService;
 use App\Services\MimeService;
 use App\Services\SecurityService;
@@ -51,6 +61,14 @@ require __DIR__ . '/../app/Helpers/url.php';
 $config = require __DIR__ . '/../app/Config/config.php';
 $translations = require __DIR__ . '/../app/Config/i18n.php';
 
+// If Google Drive is enabled but Google Client is unavailable, disable gracefully
+if (!class_exists('Google_Client')) {
+    if (!empty($config['branding']['google_drive_enabled'])) {
+        error_log('Google Drive disabled: composer autoload or google/apiclient not available.');
+        $config['branding']['google_drive_enabled'] = false;
+    }
+}
+
 // Ensure content directory exists to avoid runtime errors on first deploy.
 if (!is_dir($config['content_path'])) {
     mkdir($config['content_path'], 0755, true);
@@ -63,6 +81,7 @@ $zip = new ZipService();
 $i18n = new I18nService($config, $translations);
 $i18n->detectLanguage();
 $auth = new AuthService($config['branding']);
+$googleDrive = new GoogleDriveService($config);
 
 // Handle logout
 if (isset($_GET['logout'])) {
@@ -96,15 +115,47 @@ if ($auth->isEnabled() && !$auth->isAuthenticated()) {
 
 $errorController = new ErrorController($i18n, $config);
 $libraryController = new LibraryController($fileSystem, $mime, $security, $i18n, $config);
+$syncController = new SyncController($googleDrive, $i18n, $config);
+
+// ============================================================
+// HANDLE /SYNC ROUTE BEFORE TRY-CATCH (to prevent HTML error pages)
+// ============================================================
+$requestUri = $_SERVER['REQUEST_URI'] ?? '';
+if (strpos($requestUri, '/sync') === 0 || strpos($requestUri, 'index.php/sync') !== false) {
+    try {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            // Set JSON headers for POST (sync execution)
+            header('Content-Type: application/json; charset=utf-8');
+            $syncController->executeSync();
+        } else {
+            // Set HTML headers for GET (sync page display)
+            header('Content-Type: text/html; charset=utf-8');
+            $syncController->showSyncPage();
+        }
+    } catch (\Exception $e) {
+        http_response_code(500);
+        // Determine response type based on request method
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => false,
+                'error' => 'Sync error: ' . $e->getMessage()
+            ]);
+        } else {
+            header('Content-Type: text/html; charset=utf-8');
+            echo '<p>Erreur: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8') . '</p>';
+        }
+        error_log('Sync fatal error: ' . $e->getMessage() . ' | ' . $e->getFile() . ':' . $e->getLine());
+    }
+    exit;
+}
+// ============================================================
 
 $path = '';
 $action = null;
 
 try {
     // Extract path from REQUEST_URI directly since .htaccess doesn't work
-    $requestUri = $_SERVER['REQUEST_URI'] ?? '';
-    
-    // Remove the base path if needed and normalize
     $requestUri = preg_replace('#^/index\.php#', '', $requestUri); // Remove /index.php prefix if present
     $requestUri = ltrim($requestUri, '/'); // Remove leading slash
     

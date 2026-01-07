@@ -46,6 +46,14 @@ if ($logoSrc !== null && $docRoot !== '' && !filter_var($logoSrc, FILTER_VALIDAT
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?php
+        $metaDescription = $config['branding']['meta_description'] ?? null;
+        if (!$metaDescription) {
+            // Fallback description using site name
+            $metaDescription = ($config['app_name'] ?? 'PLE') . ' — ressources pédagogiques partagées et accès en lecture.';
+        }
+    ?>
+    <meta name="description" content="<?php echo htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8'); ?>">
     <title><?php echo htmlspecialchars($config['app_name'], ENT_QUOTES, 'UTF-8'); ?></title>
     <?php if (!empty($config['branding']['google_fonts_url'])): ?>
     <link rel="preconnect" href="https://fonts.googleapis.com">

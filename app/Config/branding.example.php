@@ -62,6 +62,12 @@ return [
     // Set to false to disable folder downloads
     'allow_directory_download' => true,
 
+    // SEO & Contact
+    // Provide a concise description for search engines
+    'meta_description' => 'Open PLE Library — accès pédagogique en lecture seule, ressources partagées et projet participatif.',
+    // Public contact email used on the login page (mailto link)
+    'contact_email' => 'contact@example.org',
+
     // Password Protection
     // Set passwords to protect access. Leave empty array to disable authentication.
     // Each password grants access to all content.
@@ -73,5 +79,17 @@ return [
     // Password session
     // Cookie name and TTL (in seconds) for authenticated sessions
     'password_cookie' => 'ple_auth',
-    'password_cookie_ttl' => 60 * 60 * 24 * 7,  // 7 days
+    'password_cookie_ttl' => 60 * 60 * 24 * 7, // 7 days
+
+    // Google Drive API (manual sync via /sync URL)
+    // 1. Create a project in Google Cloud Console
+    // 2. Enable Google Drive API
+    // 3. Create Service Account credentials
+    // 4. Download JSON credentials file
+    // 5. Share your Google Drive folder with the service account email
+    'google_drive_credentials' => null, // Path to credentials JSON file, e.g., __DIR__ . '/../../storage/google-credentials.json'
+    'google_drive_folder_id' => null,   // Google Drive folder ID (from URL: https://drive.google.com/drive/folders/[FOLDER_ID])
+    'google_drive_enabled' => false,    // Enable Google Drive integration
+    'sync_password' => null,            // Strong password for /sync endpoint (REQUIRED if enabled)
+    'sync_delete_existing' => true,     // Delete local content/ before sync (recommended for clean sync)
 ];

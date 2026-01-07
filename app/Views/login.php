@@ -158,18 +158,57 @@ $cssVersion = file_exists($cssPath) ? filemtime($cssPath) : time();
 
 <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
     <div class="login-container">
-        <h1 style="text-align: center; color: var(--structure); margin-bottom: calc(var(--spacing) * 4); margin-top: 0; font-family: var(--font-heading);">
-            <?php echo htmlspecialchars($i18n->t('auth.password_label'), ENT_QUOTES, 'UTF-8'); ?>
-        </h1>
-        
+        <div class="login-info" style="text-align: center; margin-bottom: calc(var(--spacing) * 3);">
+            <h1 style="margin: 0 0 calc(var(--spacing) * 1.5) 0; color: var(--structure); font-family: var(--font-heading); letter-spacing: 0.02em;">
+                <?php echo htmlspecialchars($i18n->t('login.hero_title'), ENT_QUOTES, 'UTF-8'); ?>
+            </h1>
+            <p class="muted" style="margin: 0 0 calc(var(--spacing) * 2) 0; font-family: var(--font-ui);">
+                <?php echo htmlspecialchars($i18n->t('login.hero_subtitle'), ENT_QUOTES, 'UTF-8'); ?>
+            </p>
+            <h2 style="margin: 0 0 calc(var(--spacing) * 1) 0; font-size: 1.05rem; color: var(--structure); font-family: var(--font-heading);">
+                <?php echo htmlspecialchars($i18n->t('login.notice1'), ENT_QUOTES, 'UTF-8'); ?>
+            </h2>
+            <p class="muted" style="margin: calc(var(--spacing) * 0.5) 0 calc(var(--spacing) * 2) 0;">
+                <?php
+                    $notice2 = $i18n->t('login.notice2');
+                    $email = $config['branding']['contact_email'] ?? 'marlierbri@ple-sansfrontieres.org';
+                    $parts = explode($email, $notice2, 2);
+                    if (count($parts) === 2) {
+                        echo htmlspecialchars($parts[0], ENT_QUOTES, 'UTF-8');
+                        echo '<a href="mailto:' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</a>';
+                        echo htmlspecialchars($parts[1], ENT_QUOTES, 'UTF-8');
+                    } else {
+                        // Fallback: just render the sentence followed by a link
+                        echo htmlspecialchars($notice2 . ' ', ENT_QUOTES, 'UTF-8');
+                        echo '<a href="mailto:' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '">' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</a>';
+                    }
+                ?>
+            </p>
+            <h2 style="margin: 0 0 calc(var(--spacing) * 1) 0; font-size: 1.05rem; color: var(--structure); font-family: var(--font-heading);">
+                <?php echo htmlspecialchars($i18n->t('login.ethics.title'), ENT_QUOTES, 'UTF-8'); ?>
+            </h2>
+            <div style="text-align: left; max-width: 52ch; margin: 0 auto; line-height: 1.6;">
+                <p style="margin: 0 0 var(--spacing) 0;">
+                    <?php echo htmlspecialchars($i18n->t('login.ethics.p1'), ENT_QUOTES, 'UTF-8'); ?>
+                </p>
+                <p style="margin: 0 0 var(--spacing) 0;">
+                    <?php echo htmlspecialchars($i18n->t('login.ethics.p2'), ENT_QUOTES, 'UTF-8'); ?>
+                </p>
+                <p style="margin: 0;">
+                    <?php echo htmlspecialchars($i18n->t('login.ethics.p3'), ENT_QUOTES, 'UTF-8'); ?>
+                </p>
+            </div>
+        </div>
+
         <?php if (!empty($error)): ?>
             <div class="error-message">
                 <?php echo htmlspecialchars($error, ENT_QUOTES, 'UTF-8'); ?>
             </div>
         <?php endif; ?>
-        
+
         <form method="post" class="login-form">
             <div class="form-group">
+                <label for="password"><?php echo htmlspecialchars($i18n->t('auth.password_label'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <input type="password" id="password" name="password" placeholder="<?php echo htmlspecialchars($i18n->t('auth.password_label'), ENT_QUOTES, 'UTF-8'); ?>" required autofocus>
             </div>
             <button type="submit"><?php echo htmlspecialchars($i18n->t('auth.login_button'), ENT_QUOTES, 'UTF-8'); ?></button>
