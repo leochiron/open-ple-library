@@ -49,6 +49,7 @@ declare(strict_types=1);
                 $entryPath = $relativePath === '' ? $entry['name'] : $relativePath . '/' . $entry['name'];
                 $url = buildUrl(['path' => $entryPath]);
                 $ext = strtolower(pathinfo($entry['name'], PATHINFO_EXTENSION));
+                $isPhp = $ext === 'php';
                 $icon = '📄';
                 if (in_array($ext, ['mp3', 'wav', 'ogg', 'm4a'], true)) {
                     $icon = '🎵';
@@ -70,9 +71,15 @@ declare(strict_types=1);
                     <div class="actions">
                         <?php if ($entry['is_dir']): ?>
                             <a class="btn ghost" href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.open'), ENT_QUOTES, 'UTF-8'); ?></a>
-                            <a class="btn ghost" href="<?php echo htmlspecialchars(buildUrl(['action' => 'download', 'path' => $entryPath]), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.download'), ENT_QUOTES, 'UTF-8'); ?></a>
+                            <?php if ($config['branding']['allow_directory_download'] ?? true): ?>
+                                <a class="btn ghost" href="<?php echo htmlspecialchars(buildUrl(['action' => 'download', 'path' => $entryPath]), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.download'), ENT_QUOTES, 'UTF-8'); ?></a>
+                            <?php endif; ?>
                         <?php else: ?>
-                            <a class="btn ghost" href="<?php echo htmlspecialchars(buildUrl(['action' => 'download', 'path' => $entryPath]), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.download'), ENT_QUOTES, 'UTF-8'); ?></a>
+                            <?php if ($isPhp): ?>
+                                <a class="btn ghost" href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>" target="_blank"><?php echo htmlspecialchars($i18n->t('file.open'), ENT_QUOTES, 'UTF-8'); ?></a>
+                            <?php else: ?>
+                                <a class="btn ghost" href="<?php echo htmlspecialchars(buildUrl(['action' => 'download', 'path' => $entryPath]), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.download'), ENT_QUOTES, 'UTF-8'); ?></a>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </div>
                 </div>

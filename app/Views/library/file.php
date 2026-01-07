@@ -35,9 +35,12 @@ declare(strict_types=1);
     </header>
 
     <?php if ($isPreviewable): ?>
-        <div class="preview">
+        <div class="preview" id="preview-container">
             <?php if (strpos($mime, 'pdf') !== false): ?>
-                <iframe src="<?php echo htmlspecialchars(buildCleanUrl(['action' => 'open', 'path' => $relativePath]), ENT_QUOTES, 'UTF-8'); ?>" title="PDF preview" loading="lazy"></iframe>
+                <div class="preview-toolbar">
+                    <button id="fullscreen-btn" class="btn ghost" title="Plein écran">⛶</button>
+                </div>
+                <iframe src="<?php echo htmlspecialchars(buildCleanUrl(['action' => 'open', 'path' => $relativePath]), ENT_QUOTES, 'UTF-8'); ?>" title="PDF preview" loading="lazy" id="pdf-iframe"></iframe>
             <?php elseif (strpos($mime, 'audio') === 0): ?>
                 <audio controls preload="metadata" id="audio-player">
                     <source src="<?php echo htmlspecialchars(buildCleanUrl(['action' => 'open', 'path' => $relativePath]), ENT_QUOTES, 'UTF-8'); ?>" type="<?php echo htmlspecialchars($mime, ENT_QUOTES, 'UTF-8'); ?>">
@@ -78,6 +81,27 @@ declare(strict_types=1);
                 </script>
             <?php endif; ?>
         </div>
+        <script>
+            (function() {
+                var fullscreenBtn = document.getElementById('fullscreen-btn');
+                var previewContainer = document.getElementById('preview-container');
+                
+                if (fullscreenBtn && previewContainer) {
+                    fullscreenBtn.addEventListener('click', function() {
+                        previewContainer.classList.toggle('fullscreen');
+                        fullscreenBtn.textContent = previewContainer.classList.contains('fullscreen') ? '✕' : '⛶';
+                    });
+                    
+                    // Close fullscreen on Escape key
+                    document.addEventListener('keydown', function(e) {
+                        if (e.key === 'Escape' && previewContainer.classList.contains('fullscreen')) {
+                            previewContainer.classList.remove('fullscreen');
+                            fullscreenBtn.textContent = '⛶';
+                        }
+                    });
+                }
+            })();
+        </script>
     <?php else: ?>
         <div class="empty">
             <?php echo htmlspecialchars($i18n->t('file.preview_unavailable'), ENT_QUOTES, 'UTF-8'); ?>

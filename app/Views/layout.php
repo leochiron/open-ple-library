@@ -65,7 +65,11 @@ $jsVersion = file_exists($jsPath) ? filemtime($jsPath) : time();
     </div>
     <div class="brand">
         <a href="<?php echo htmlspecialchars(buildUrl(['path' => '']), ENT_QUOTES, 'UTF-8'); ?>" class="brand-link">
-            <img src="<?php echo htmlspecialchars($config['branding']['site_logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars($config['app_name'], ENT_QUOTES, 'UTF-8'); ?>" class="logo">
+            <?php if (!empty($config['branding']['site_logo_text'])): ?>
+                <span class="brand-text"><?php echo htmlspecialchars($config['branding']['site_logo_text'], ENT_QUOTES, 'UTF-8'); ?></span>
+            <?php else: ?>
+                <img src="<?php echo htmlspecialchars($config['branding']['site_logo'], ENT_QUOTES, 'UTF-8'); ?>" alt="<?php echo htmlspecialchars($config['app_name'], ENT_QUOTES, 'UTF-8'); ?>" class="logo">
+            <?php endif; ?>
         </a>
     </div>
 </header>

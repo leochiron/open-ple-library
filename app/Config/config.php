@@ -15,9 +15,9 @@ $branding = file_exists($brandingPath) ? require $brandingPath : require __DIR__
 return [
     'app_name' => $branding['site_name'],
     'content_path' => $contentPath,
-    'default_language' => 'fr',
-    'languages' => ['fr', 'en', 'eo'],
-    'language_cookie' => 'ple_lang',
-    'language_cookie_ttl' => 60 * 60 * 24 * 30, // 30 days
+    'default_language' => $branding['default_language'],
+    'languages' => $branding['available_languages'],
+    'language_cookie' => $branding['language_cookie'],
+    'language_cookie_ttl' => $branding['language_cookie_ttl'],
     'branding' => $branding,
 ];

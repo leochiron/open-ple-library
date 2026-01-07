@@ -60,6 +60,21 @@ class LibraryController
 
         $filename = basename($absolutePath);
         $mime = $this->mime->getMimeType($absolutePath);
+        
+        // Vérifier si c'est un fichier PHP contenant une redirection
+        if (pathinfo($absolutePath, PATHINFO_EXTENSION) === 'php') {
+            $redirectUrl = $this->extractRedirectUrl($absolutePath);
+            if ($redirectUrl !== null) {
+                // Afficher la page de redirection
+                render('library/redirect', [
+                    'redirectUrl' => $redirectUrl,
+                    'filename' => $filename,
+                    'breadcrumbs' => $this->buildBreadcrumbs($relativePath),
+                ], $this->i18n, $this->config);
+                return;
+            }
+        }
+        
         $previewable = $this->mime->isPreviewable($mime);
 
         render('library/file', [
@@ -112,5 +127,24 @@ class LibraryController
 
         $parent = dirname($relativePath);
         return $parent === '.' ? '' : $parent;
+    }
+
+    /**
+     * Extrait l'URL de redirection d'un fichier PHP s'il en contient une
+     * Format attendu : $url = 'https://...';
+     */
+    private function extractRedirectUrl(string $filePath): ?string
+    {
+        $content = file_get_contents($filePath);
+        if ($content === false) {
+            return null;
+        }
+
+        // Rechercher le pattern : $url = '...';
+        if (preg_match('/\$url\s*=\s*[\'"]([^\'"]+)[\'"];/', $content, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
     }
 }

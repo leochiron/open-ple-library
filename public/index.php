@@ -66,14 +66,37 @@ $errorController = new ErrorController($i18n, $config);
 $libraryController = new LibraryController($fileSystem, $mime, $security, $i18n, $config);
 
 $path = '';
-$action = $_GET['action'] ?? null;
+$action = null;
 
 try {
-    $path = $_GET['path'] ?? '';
+    // Extract path from REQUEST_URI directly since .htaccess doesn't work
+    $requestUri = $_SERVER['REQUEST_URI'] ?? '';
     
-    // DEBUG: Log the received path
-    error_log('DEBUG: Raw path received: ' . var_export($path, true));
-    error_log('DEBUG: After urldecode: ' . var_export(urldecode($path), true));
+    // Remove the base path if needed and normalize
+    $requestUri = preg_replace('#^/index\.php#', '', $requestUri); // Remove /index.php prefix if present
+    $requestUri = ltrim($requestUri, '/'); // Remove leading slash
+    
+    // Check for action suffixes
+    if (preg_match('/^(.+)\+download\/?$/', $requestUri, $matches)) {
+        $path = $matches[1];
+        $action = 'download';
+    } elseif (preg_match('/^(.+)\+open\/?$/', $requestUri, $matches)) {
+        $path = $matches[1];
+        $action = 'open';
+    } else {
+        // Regular path
+        $path = $requestUri;
+    }
+    
+    // Remove query string if present
+    if (strpos($path, '?') !== false) {
+        $path = substr($path, 0, strpos($path, '?'));
+    }
+    
+    // DECODE URL-encoded characters (like %20 for spaces)
+    // Use rawurldecode instead of urldecode because urldecode treats + as space
+    // which is wrong for URL paths (+ should be literal)
+    $path = rawurldecode($path);
     
     $path = $security->validateRelativePath($path);
 
