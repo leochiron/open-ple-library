@@ -1,8 +1,0 @@
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteBase /
-    
-    # Allow all files and directories
-    RewriteRule ^ - [L]
-</IfModule>
-
