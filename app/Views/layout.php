@@ -113,6 +113,11 @@ if ($logoSrc !== null && $docRoot !== '' && !filter_var($logoSrc, FILTER_VALIDAT
 </main>
 <footer class="app-footer">
     <p><?php echo htmlspecialchars($config['branding']['footer_text'], ENT_QUOTES, 'UTF-8'); ?></p>
+    <p class="footer-github">
+        <a href="https://github.com/leochiron/open-ple-library" target="_blank" rel="noopener noreferrer">
+            GitHub
+        </a>
+    </p>
 </footer>
 <script src="<?php echo htmlspecialchars($assetBase . '/js/main.js?v=' . $jsVersion, ENT_QUOTES, 'UTF-8'); ?>"></script>
 </body>
