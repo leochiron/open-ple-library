@@ -62,6 +62,11 @@ return [
     // Set to false to disable folder downloads
     'allow_directory_download' => true,
 
+    // Features - Show download button for previewable files
+    // If true, files like PDF, MP3, MP4 show both 'open' (viewer) and 'download' buttons
+    // If false, only 'open' button is shown
+    'allow_download_previewable' => true,
+
     // SEO & Contact
     // Provide a concise description for search engines
     'meta_description' => 'Open PLE Library — accès pédagogique en lecture seule, ressources partagées et projet participatif.',
