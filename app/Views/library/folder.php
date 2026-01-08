@@ -32,7 +32,15 @@ declare(strict_types=1);
 
 <section class="card">
     <header class="card-header">
-        <h1><?php echo htmlspecialchars($i18n->t('folder.heading'), ENT_QUOTES, 'UTF-8'); ?></h1>
+        <h1 class="sr-only">
+            <?php
+            $title = htmlspecialchars($config['branding']['site_name'], ENT_QUOTES, 'UTF-8');
+            if ($relativePath) {
+                $title .= ' / ' . htmlspecialchars(str_replace('/', ' / ', $relativePath), ENT_QUOTES, 'UTF-8');
+            }
+            echo $title;
+            ?>
+        </h1>
     </header>
     <?php if (count($entries) === 0): ?>
         <div class="empty"><?php echo htmlspecialchars($i18n->t('folder.empty'), ENT_QUOTES, 'UTF-8'); ?></div>
