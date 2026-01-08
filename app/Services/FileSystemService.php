@@ -26,8 +26,61 @@ class FileSystemService
             return $normalized;
         }
 
+        // If realpath fails, try to find the path accounting for trailing spaces
+        // This handles cases where directory names have trailing whitespace
+        $absolute = $this->attemptFuzzyResolve($absolute);
         $this->security->ensureInsideRoot($absolute);
         return $absolute;
+    }
+
+    /**
+     * Try to resolve a path that might have trailing spaces in directory names.
+     * Walks the path segment by segment, matching directories with flexible whitespace.
+     */
+    private function attemptFuzzyResolve(string $path): string
+    {
+        $parts = explode(DIRECTORY_SEPARATOR, $path);
+        $current = '';
+        
+        foreach ($parts as $part) {
+            if ($part === '' || $part === '.') {
+                $current .= DIRECTORY_SEPARATOR;
+                continue;
+            }
+            
+            if ($current === '') {
+                $current = DIRECTORY_SEPARATOR . $part;
+            } else {
+                $trimmedPart = trim($part);
+                
+                // If the part doesn't exist, try finding it with fuzzy matching
+                if (!file_exists($current . DIRECTORY_SEPARATOR . $part)) {
+                    $found = false;
+                    if (is_dir($current)) {
+                        $items = @scandir($current);
+                        if ($items) {
+                            foreach ($items as $item) {
+                                // Match with trimmed comparison (accounts for trailing spaces)
+                                if (trim($item) === $trimmedPart) {
+                                    $current .= DIRECTORY_SEPARATOR . $item;
+                                    $found = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (!$found) {
+                        // Fallback to original part
+                        $current .= DIRECTORY_SEPARATOR . $part;
+                    }
+                } else {
+                    $current .= DIRECTORY_SEPARATOR . $part;
+                }
+            }
+        }
+        
+        return $current;
     }
 
     /**

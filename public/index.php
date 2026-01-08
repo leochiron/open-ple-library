@@ -118,9 +118,17 @@ $libraryController = new LibraryController($fileSystem, $mime, $security, $i18n,
 $syncController = new SyncController($googleDrive, $i18n, $config);
 
 // ============================================================
-// HANDLE /SYNC ROUTE BEFORE TRY-CATCH (to prevent HTML error pages)
+// HANDLE /DEBUG ROUTE (diagnostic page)
 // ============================================================
 $requestUri = $_SERVER['REQUEST_URI'] ?? '';
+if (strpos($requestUri, '/debug') === 0 || strpos($requestUri, 'index.php/debug') !== false) {
+    require __DIR__ . '/debug.php';
+    exit;
+}
+
+// ============================================================
+// HANDLE /SYNC ROUTE BEFORE TRY-CATCH (to prevent HTML error pages)
+// ============================================================
 if (strpos($requestUri, '/sync') === 0 || strpos($requestUri, 'index.php/sync') !== false) {
     try {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
