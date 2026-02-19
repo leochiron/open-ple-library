@@ -90,9 +90,8 @@ declare(strict_types=1);
                             ?>
                             <?php if ($isPhp): ?>
                                 <a class="btn ghost" href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>" target="_blank"><?php echo htmlspecialchars($i18n->t('file.open'), ENT_QUOTES, 'UTF-8'); ?></a>
-                            <?php elseif ($isPreviewable && $allowDownloadPreviewable): ?>
+                            <?php elseif ($isPreviewable && !$allowDownloadPreviewable): ?>
                                 <a class="btn ghost" href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.open'), ENT_QUOTES, 'UTF-8'); ?></a>
-                                <a class="btn ghost" href="<?php echo htmlspecialchars(buildUrl(['action' => 'download', 'path' => $entryPath]), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.download'), ENT_QUOTES, 'UTF-8'); ?></a>
                             <?php else: ?>
                                 <a class="btn ghost" href="<?php echo htmlspecialchars($url, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.open'), ENT_QUOTES, 'UTF-8'); ?></a>
                                 <a class="btn ghost" href="<?php echo htmlspecialchars(buildUrl(['action' => 'download', 'path' => $entryPath]), ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($i18n->t('file.download'), ENT_QUOTES, 'UTF-8'); ?></a>
