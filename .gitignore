@@ -11,6 +11,7 @@ Thumbs.db
 storage/google-credentials.json
 /content/*
 !/content/.gitkeep
+!/content/.htaccess
 /public/assets/css/main.css.map
 /public/assets/images/logo.png
 /app/Config/branding.php

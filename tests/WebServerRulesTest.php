@@ -7,6 +7,9 @@ require __DIR__ . '/bootstrap.php';
 $root = dirname(__DIR__);
 $rootRules = (string)file_get_contents($root . '/.htaccess');
 $publicRules = (string)file_get_contents($root . '/public/.htaccess');
+$contentRulesPath = $root . '/content/.htaccess';
+$contentRules = (string)file_get_contents($contentRulesPath);
+$contentRulesTemplate = (string)file_get_contents($root . '/app/Config/content.htaccess');
 $debugEndpoint = (string)file_get_contents($root . '/public/debug.php');
 $robotsTemplate = (string)file_get_contents($root . '/robots.txt');
 
@@ -34,6 +37,12 @@ $publicSeoPosition = strpos($publicRules, 'RewriteRule ^(robots\.txt|sitemap\.xm
 assertSameValue(true, $publicSeoPosition !== false, 'Public rules must route SEO files through PHP');
 assertSameValue(true, $publicSeoPosition < $publicBypassPosition, 'Public SEO routing must precede the real-file bypass');
 assertSameValue(true, strpos($debugEndpoint, 'http_response_code(404)') !== false, 'The direct debug endpoint must return 404');
+
+assertSameValue(true, is_readable($contentRulesPath), 'PHP must retain filesystem read access to the content protection file');
+assertSameValue($contentRulesTemplate, $contentRules, 'Deployed content rules must match the canonical sync-safe template');
+assertSameValue(true, strpos($contentRules, '<IfModule mod_rewrite.c>') !== false, 'Content rules must use the project rewrite module');
+assertSameValue(true, strpos($contentRules, 'RewriteEngine On') !== false, 'Content rules must enable local rewriting');
+assertSameValue(true, strpos($contentRules, 'RewriteRule ^ - [F,L]') !== false, 'Content rules must forbid every direct HTTP path');
 
 function apacheBinary(): ?string
 {

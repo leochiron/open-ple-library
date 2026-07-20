@@ -1,0 +1,6 @@
+# Defense in depth when the repository root is used as the document root.
+# These rules affect HTTP authorization only; PHP can still read this directory.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^ - [F,L]
+</IfModule>

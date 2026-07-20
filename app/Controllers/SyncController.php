@@ -166,22 +166,25 @@ class SyncController
 
             $startTime = microtime(true);
 
+            $this->ensureContentProtection();
+
             // Clear existing content
             $deleteExisting = $this->config['branding']['sync_delete_existing'] ?? true;
             if ($deleteExisting && is_dir($this->contentPath)) {
                 $sendEvent('progress', ['message' => 'Suppression du contenu existant...']);
-                $this->deleteDirectory($this->contentPath, $stats);
+                $this->deleteDirectory($this->contentPath, $stats, true);
             }
 
-            // Ensure content directory exists
-            if (!is_dir($this->contentPath)) {
-                mkdir($this->contentPath, 0755, true);
-            }
+            $this->ensureContentProtection();
 
             $sendEvent('progress', ['message' => 'Téléchargement en cours...']);
 
             // Download with progress callback
-            $this->downloadFolderWithProgress($rootFolderId, $this->contentPath, $stats, $sendEvent);
+            try {
+                $this->downloadFolderWithProgress($rootFolderId, $this->contentPath, $stats, $sendEvent);
+            } finally {
+                $this->ensureContentProtection();
+            }
 
             $stats['duration'] = round(microtime(true) - $startTime, 2);
 
@@ -221,19 +224,22 @@ class SyncController
             throw new \RuntimeException('Google Drive folder ID not configured');
         }
 
+        $this->ensureContentProtection();
+
         // Clear existing content (optional - you may want to keep this configurable)
         $deleteExisting = $this->config['branding']['sync_delete_existing'] ?? true;
         if ($deleteExisting && is_dir($this->contentPath)) {
-            $this->deleteDirectory($this->contentPath, $stats);
+            $this->deleteDirectory($this->contentPath, $stats, true);
         }
 
-        // Ensure content directory exists
-        if (!is_dir($this->contentPath)) {
-            mkdir($this->contentPath, 0755, true);
-        }
+        $this->ensureContentProtection();
 
         // Start recursive download
-        $this->downloadFolder($rootFolderId, $this->contentPath, $stats);
+        try {
+            $this->downloadFolder($rootFolderId, $this->contentPath, $stats);
+        } finally {
+            $this->ensureContentProtection();
+        }
 
         $stats['duration'] = round(microtime(true) - $startTime, 2);
         return $stats;
@@ -248,11 +254,12 @@ class SyncController
 
         foreach ($files as $file) {
             // Files are now associative arrays instead of Google objects
-            $fileName = $file['name'] ?? 'unknown';
+            $fileName = $file['name'] ?? null;
             $mimeType = $file['mimeType'] ?? '';
             $fileId = $file['id'] ?? null;
-            
-            if (!$fileId) {
+
+            if (!is_string($fileName) || !$this->isSafeContentName($fileName)
+                || !is_string($fileId) || $fileId === '') {
                 continue;
             }
             
@@ -298,11 +305,12 @@ class SyncController
         $files = $this->googleDrive->listFiles($folderId);
 
         foreach ($files as $file) {
-            $fileName = $file['name'] ?? 'unknown';
+            $fileName = $file['name'] ?? null;
             $mimeType = $file['mimeType'] ?? '';
             $fileId = $file['id'] ?? null;
-            
-            if (!$fileId) {
+
+            if (!is_string($fileName) || !$this->isSafeContentName($fileName)
+                || !is_string($fileId) || $fileId === '') {
                 continue;
             }
             
@@ -352,10 +360,32 @@ class SyncController
         }
     }
 
+    /** Accept one ordinary filesystem component and protect local server rules. */
+    private function isSafeContentName(string $fileName): bool
+    {
+        if ($fileName === '' || $fileName === '.' || $fileName === '..'
+            || strpos($fileName, "\0") !== false
+            || strpos($fileName, '/') !== false
+            || strpos($fileName, '\\') !== false
+            || preg_match('/^[A-Za-z]:/D', $fileName) === 1) {
+            return false;
+        }
+
+        // NTFS and Windows APIs ignore trailing spaces/dots and may expose an
+        // alternate-data-stream suffix after a colon.
+        $windowsName = rtrim($fileName, " .");
+        $streamSeparator = strpos($windowsName, ':');
+        if ($streamSeparator !== false) {
+            $windowsName = substr($windowsName, 0, $streamSeparator);
+        }
+        return strcasecmp($windowsName, '.htaccess') !== 0
+            && preg_match('/^htacce~[0-9](?:\..*)?$/iD', $windowsName) !== 1;
+    }
+
     /**
      * Recursively delete a directory
      */
-    private function deleteDirectory(string $dir, array &$stats): void
+    private function deleteDirectory(string $dir, array &$stats, bool $preserveContentProtection = false): void
     {
         if (!is_dir($dir)) {
             return;
@@ -364,6 +394,9 @@ class SyncController
         $items = scandir($dir);
         foreach ($items as $item) {
             if ($item === '.' || $item === '..') {
+                continue;
+            }
+            if ($preserveContentProtection && $item === '.htaccess') {
                 continue;
             }
 
@@ -376,7 +409,34 @@ class SyncController
             }
         }
 
-        rmdir($dir);
+        if (!$preserveContentProtection) {
+            rmdir($dir);
+        }
+    }
+
+    /** Restore the canonical HTTP denial after destructive or remote writes. */
+    private function ensureContentProtection(): void
+    {
+        if (!is_dir($this->contentPath)
+            && !mkdir($this->contentPath, 0755, true)
+            && !is_dir($this->contentPath)) {
+            throw new \RuntimeException('Unable to create the content directory');
+        }
+
+        $templatePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'Config' . DIRECTORY_SEPARATOR . 'content.htaccess';
+        $rules = @file_get_contents($templatePath);
+        if (!is_string($rules) || $rules === '') {
+            throw new \RuntimeException('Content protection template is unavailable');
+        }
+
+        $destination = $this->contentPath . DIRECTORY_SEPARATOR . '.htaccess';
+        if (@file_get_contents($destination) === $rules) {
+            return;
+        }
+        $bytesWritten = @file_put_contents($destination, $rules, LOCK_EX);
+        if ($bytesWritten !== strlen($rules)) {
+            throw new \RuntimeException('Unable to restore content HTTP protection');
+        }
     }
 
     // View rendering is handled by the global render() helper.
