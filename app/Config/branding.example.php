@@ -11,6 +11,14 @@ declare(strict_types=1);
  */
 
 return [
+    // Deployment profile. Existing installations without these keys keep the
+    // historical hybrid behavior (library at /, quiz at /quiz).
+    'app_mode' => 'hybrid', // library | quiz | hybrid
+    'quiz' => [
+        'enabled' => true,          // Emergency switch for every quiz route
+        'show_admin_link' => true,  // Link displayed on the student join page
+    ],
+
     // Site identity
     'site_name' => 'My PLE Library',
     'site_logo' => '/assets/images/logo.png',  // Path to your logo file

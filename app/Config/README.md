@@ -17,6 +17,28 @@ Ce guide explique comment personnaliser l'apparence visuelle de votre site PLE L
 
 ## Configuration Détaillée
 
+### Profil de déploiement
+
+Le même code peut exposer uniquement la bibliothèque, uniquement les quiz,
+ou les deux fonctions :
+
+```php
+'app_mode' => 'hybrid', // library | quiz | hybrid
+'quiz' => [
+    'enabled' => true,
+    'show_admin_link' => true,
+],
+```
+
+- `library` conserve la bibliothèque et ferme les routes quiz ;
+- `quiz` place l'accès élève à la racine et ferme la bibliothèque ;
+- `hybrid` conserve la bibliothèque à la racine et le quiz sous `/quiz` ;
+- `quiz.enabled=false` coupe immédiatement toutes les routes quiz.
+
+Une ancienne configuration qui ne contient pas ces clés reste automatiquement
+en mode `hybrid`, avec le module quiz actif : aucune migration de configuration
+n'est nécessaire.
+
 ### 1. Identité du Site
 
 ```php
