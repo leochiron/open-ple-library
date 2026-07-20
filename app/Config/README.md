@@ -28,6 +28,9 @@ ou les deux fonctions :
     'enabled' => true,
     'show_admin_link' => true,
 ],
+'public_base_url' => 'https://courses.example.org',
+'trust_forwarded_proto' => false,
+'trusted_proxy_ips' => [],
 ```
 
 - `library` conserve la bibliothèque et ferme les routes quiz ;
@@ -38,6 +41,17 @@ ou les deux fonctions :
 Une ancienne configuration qui ne contient pas ces clés reste automatiquement
 en mode `hybrid`, avec le module quiz actif : aucune migration de configuration
 n'est nécessaire.
+
+`public_base_url` fixe l'origine publique utilisée par `robots.txt` et le
+sitemap. Sa valeur doit contenir uniquement `http://` ou `https://`, un nom
+d'hôte ou une adresse IP, et un port facultatif. Aucun chemin, identifiant,
+query string ou fragment n'est accepté. Cette clé est recommandée en
+production.
+
+Sans URL configurée, l'application valide strictement l'en-tête `Host` et
+déduit HTTPS depuis le serveur. `X-Forwarded-Proto` est ignoré par défaut. Pour
+l'utiliser derrière un reverse proxy, activez `trust_forwarded_proto` et listez
+chaque adresse IP de proxy autorisée dans `trusted_proxy_ips`.
 
 ### 1. Identité du Site
 

@@ -34,5 +34,8 @@ return [
     'languages' => $languages,
     'language_cookie' => $languageCookie,
     'language_cookie_ttl' => $languageCookieTtl,
+    'public_base_url' => $branding['public_base_url'] ?? null,
+    'trust_forwarded_proto' => $branding['trust_forwarded_proto'] ?? false,
+    'trusted_proxy_ips' => $branding['trusted_proxy_ips'] ?? [],
     'branding' => $branding,
 ];

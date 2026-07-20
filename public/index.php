@@ -29,17 +29,6 @@ if ($earlyPath === '/favicon.ico') {
     exit;
 }
 
-// Keep SEO files public even when password protection is enabled.
-if ($earlyPath === '/robots.txt') {
-    serveRobotsTxt();
-    exit;
-}
-
-if ($earlyPath === '/sitemap.xml') {
-    serveSitemapXml();
-    exit;
-}
-
 use App\Controllers\ErrorController;
 use App\Controllers\LibraryController;
 use App\Controllers\QuizAdminController;
@@ -52,6 +41,7 @@ use App\Services\FileSystemService;
 use App\Services\GoogleDriveService;
 use App\Services\I18nService;
 use App\Services\MimeService;
+use App\Services\PublicUrlResolver;
 use App\Services\SecurityService;
 use App\Services\ZipService;
 
@@ -80,6 +70,7 @@ $translations = require __DIR__ . '/../app/Config/i18n.php';
 
 try {
     $applicationProfile = ApplicationProfile::fromBranding($config['branding']);
+    $publicBaseUrl = PublicUrlResolver::fromConfig($config)->resolve($_SERVER);
     $applicationRouter = new ApplicationRouter($applicationProfile);
     $routeCategory = $applicationRouter->classify($_SERVER['REQUEST_URI'] ?? '/');
 } catch (InvalidArgumentException $exception) {
@@ -87,6 +78,17 @@ try {
     http_response_code(503);
     header('Content-Type: text/plain; charset=utf-8');
     echo 'Service temporarily unavailable.';
+    exit;
+}
+
+// Keep canonical SEO files public even when library password protection is enabled.
+if ($earlyPath === '/robots.txt') {
+    serveRobotsTxt($publicBaseUrl);
+    exit;
+}
+
+if ($earlyPath === '/sitemap.xml') {
+    serveSitemapXml($publicBaseUrl);
     exit;
 }
 
@@ -469,21 +471,7 @@ function serveInline(FileSystemService $fs, SecurityService $security, MimeServi
     readfile($absolute);
 }
 
-function detectBaseUrl(): string
-{
-    $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
-    if ($forwardedProto !== '') {
-        $scheme = trim(explode(',', $forwardedProto)[0]) === 'https' ? 'https' : 'http';
-    } else {
-        $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
-        $scheme = $isHttps ? 'https' : 'http';
-    }
-
-    $host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost');
-    return $scheme . '://' . $host;
-}
-
-function serveRobotsTxt(): void
+function serveRobotsTxt(string $publicBaseUrl): void
 {
     header('Content-Type: text/plain; charset=utf-8');
 
@@ -496,7 +484,7 @@ function serveRobotsTxt(): void
         }
     }
 
-    $sitemapLine = 'Sitemap: ' . detectBaseUrl() . '/sitemap.xml';
+    $sitemapLine = 'Sitemap: ' . $publicBaseUrl . '/sitemap.xml';
     if ($content === '') {
         $content = "User-agent: *\nAllow: /\n\n" . $sitemapLine;
     } elseif (!preg_match('/^Sitemap:/mi', $content)) {
@@ -506,11 +494,11 @@ function serveRobotsTxt(): void
     echo $content . "\n";
 }
 
-function serveSitemapXml(): void
+function serveSitemapXml(string $publicBaseUrl): void
 {
     header('Content-Type: application/xml; charset=utf-8');
 
-    $homepage = htmlspecialchars(detectBaseUrl() . '/', ENT_QUOTES | ENT_XML1, 'UTF-8');
+    $homepage = htmlspecialchars($publicBaseUrl . '/', ENT_QUOTES | ENT_XML1, 'UTF-8');
     $lastmod = gmdate('Y-m-d\TH:i:s\Z');
 
     echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";

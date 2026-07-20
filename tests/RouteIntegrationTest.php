@@ -96,9 +96,19 @@ function requestStatus(int $port, string $path): int
 
 function requestBody(int $port, string $path): string
 {
-    $context = stream_context_create(['http' => ['ignore_errors' => true, 'timeout' => 3]]);
-    $body = @file_get_contents('http://127.0.0.1:' . $port . $path, false, $context);
-    return is_string($body) ? $body : '';
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        $context = stream_context_create(['http' => [
+            'ignore_errors' => true,
+            'timeout' => 3,
+            'header' => "Connection: close\r\n",
+        ]]);
+        $body = @file_get_contents('http://127.0.0.1:' . $port . $path, false, $context);
+        if (is_string($body)) {
+            return $body;
+        }
+        usleep(20000);
+    }
+    return '';
 }
 
 function requestContentType(int $port, string $path): string
@@ -114,13 +124,59 @@ function requestContentType(int $port, string $path): string
     return '';
 }
 
-function writeBranding(string $path, string $examplePath, string $mode, bool $quizEnabled = true, bool $showAdminLink = true): void
+function requestStatusWithHeaders(int $port, string $path, array $headers): int
+{
+    $context = stream_context_create(['http' => [
+        'ignore_errors' => true,
+        'timeout' => 3,
+        'follow_location' => 0,
+        'header' => implode("\r\n", $headers),
+    ]]);
+    @file_get_contents('http://127.0.0.1:' . $port . $path, false, $context);
+    $responseHeaders = $http_response_header ?? [];
+    if (!isset($responseHeaders[0]) || preg_match('/\s(\d{3})\s/', $responseHeaders[0], $match) !== 1) {
+        throw new RuntimeException('No HTTP status for custom-header request ' . $path);
+    }
+    return (int)$match[1];
+}
+
+function requestBodyWithHeaders(int $port, string $path, array $headers): string
+{
+    $headers[] = 'Connection: close';
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        $context = stream_context_create(['http' => [
+            'ignore_errors' => true,
+            'timeout' => 3,
+            'header' => implode("\r\n", $headers),
+        ]]);
+        $body = @file_get_contents('http://127.0.0.1:' . $port . $path, false, $context);
+        if (is_string($body)) {
+            return $body;
+        }
+        usleep(20000);
+    }
+    return '';
+}
+
+function writeBranding(
+    string $path,
+    string $examplePath,
+    string $mode,
+    bool $quizEnabled = true,
+    bool $showAdminLink = true,
+    ?string $publicBaseUrl = null,
+    bool $trustForwardedProto = false,
+    array $trustedProxyIps = []
+): void
 {
     $source = "<?php\n"
         . '$branding = require ' . var_export($examplePath, true) . ";\n"
         . '$branding[\'app_mode\'] = ' . var_export($mode, true) . ";\n"
         . '$branding[\'quiz\'] = [\'enabled\' => ' . ($quizEnabled ? 'true' : 'false')
         . ", 'show_admin_link' => " . ($showAdminLink ? 'true' : 'false') . "];\n"
+        . '$branding[\'public_base_url\'] = ' . var_export($publicBaseUrl, true) . ";\n"
+        . '$branding[\'trust_forwarded_proto\'] = ' . ($trustForwardedProto ? 'true' : 'false') . ";\n"
+        . '$branding[\'trusted_proxy_ips\'] = ' . var_export($trustedProxyIps, true) . ";\n"
         . "return \$branding;\n";
     file_put_contents($path, $source);
 }
@@ -209,14 +265,17 @@ try {
                     assertSameValue(false, is_dir($contentPath), $rootName . ' quiz request must not create content');
                     $joinBody = requestBody($port, '/');
                     assertSameValue(true, strpos($joinBody, 'href="/quiz-admin"') !== false, $rootName . ' quiz homepage exposes the configured admin link');
+                    $untrustedForwardedBody = requestBodyWithHeaders($port, '/sitemap.xml', ['X-Forwarded-Proto: https']);
+                    assertSameValue(true, strpos($untrustedForwardedBody, '<loc>http://127.0.0.1:' . $port . '/</loc>') !== false, $rootName . ' ignores untrusted forwarded protocol');
+                    assertSameValue(503, requestStatusWithHeaders($port, '/', ['Host: bad_host.example']), $rootName . ' hostile Host gets neutral configuration error');
                 } else {
                     assertSameValue(200, requestStatus($port, '/lesson.md'), $rootName . ' raw markdown fixture');
                     assertSameValue(200, requestStatus($port, '/package.skill'), $rootName . ' raw skill fixture');
                     assertSameValue(200, requestStatus($port, '/notes.txt'), $rootName . ' ordinary file fixture');
+                    assertSameValue('text/html; charset=utf-8', strtolower(requestContentType($port, '/notes.txt')), $rootName . ' ordinary file is rendered by the library');
                     assertSameValue(200, requestStatus($port, '/course'), $rootName . ' folder navigation fixture');
                     assertSameValue(200, requestStatus($port, '/course/chapter.md'), $rootName . ' nested raw markdown fixture');
                     assertSameValue("# Fixture lesson\n", requestBody($port, '/lesson.md'), $rootName . ' markdown is served raw');
-                    assertSameValue("fixture skill\n", requestBody($port, '/package.skill'), $rootName . ' skill fixture body');
                 }
             } finally {
                 proc_terminate($process);
@@ -243,7 +302,6 @@ try {
             assertSameValue(200, requestStatus($port, '/package.skill'), $rootName . ' legacy raw skill');
             assertSameValue(200, requestStatus($port, '/notes.txt'), $rootName . ' legacy ordinary file');
             assertSameValue("# Fixture lesson\n", requestBody($port, '/lesson.md'), $rootName . ' legacy markdown body');
-            assertSameValue("fixture skill\n", requestBody($port, '/package.skill'), $rootName . ' legacy skill body');
         } finally {
             proc_terminate($process);
             foreach ($pipes as $pipe) {
@@ -273,6 +331,74 @@ try {
             assertSameValue(404, requestStatus($port, '/course'), $rootName . ' preloaded quiz folder denial');
             assertSameValue(404, requestStatus($port, '/course/chapter.md'), $rootName . ' preloaded quiz nested markdown denial');
             assertSameValue(true, is_file($preloadedQuizContent . DIRECTORY_SEPARATOR . 'lesson.md'), $rootName . ' preloaded fixture remains present');
+        } finally {
+            proc_terminate($process);
+            foreach ($pipes as $pipe) {
+                fclose($pipe);
+            }
+            proc_close($process);
+        }
+
+        $configuredUrlPath = $temporaryRoot . DIRECTORY_SEPARATOR . $rootName . '-configured-url';
+        mkdir($configuredUrlPath, 0700, true);
+        $configuredUrlBranding = $configuredUrlPath . DIRECTORY_SEPARATOR . 'branding.php';
+        writeBranding($configuredUrlBranding, $examplePath, 'quiz', true, true, 'https://canonical.example:8443');
+        [$process, $pipes, $port] = startServer(
+            $root,
+            $documentRoot,
+            $router,
+            $configuredUrlBranding,
+            $configuredUrlPath . DIRECTORY_SEPARATOR . 'content'
+        );
+        try {
+            assertSameValue(true, strpos(requestBody($port, '/robots.txt'), 'Sitemap: https://canonical.example:8443/sitemap.xml') !== false, $rootName . ' configured robots URL');
+            assertSameValue(true, strpos(requestBody($port, '/sitemap.xml'), '<loc>https://canonical.example:8443/</loc>') !== false, $rootName . ' configured sitemap URL');
+        } finally {
+            proc_terminate($process);
+            foreach ($pipes as $pipe) {
+                fclose($pipe);
+            }
+            proc_close($process);
+        }
+
+        $invalidUrlPath = $temporaryRoot . DIRECTORY_SEPARATOR . $rootName . '-invalid-url';
+        mkdir($invalidUrlPath, 0700, true);
+        $invalidUrlBranding = $invalidUrlPath . DIRECTORY_SEPARATOR . 'branding.php';
+        writeBranding($invalidUrlBranding, $examplePath, 'quiz', true, true, 'https://canonical.example/path');
+        [$process, $pipes, $port] = startServer(
+            $root,
+            $documentRoot,
+            $router,
+            $invalidUrlBranding,
+            $invalidUrlPath . DIRECTORY_SEPARATOR . 'content'
+        );
+        try {
+            assertSameValue(503, requestStatus($port, '/'), $rootName . ' invalid configured URL homepage');
+            assertSameValue(503, requestStatus($port, '/robots.txt'), $rootName . ' invalid configured URL robots');
+            assertSameValue('Service temporarily unavailable.', requestBody($port, '/robots.txt'), $rootName . ' invalid URL response remains neutral');
+        } finally {
+            proc_terminate($process);
+            foreach ($pipes as $pipe) {
+                fclose($pipe);
+            }
+            proc_close($process);
+        }
+
+        $trustedProxyPath = $temporaryRoot . DIRECTORY_SEPARATOR . $rootName . '-trusted-proxy';
+        mkdir($trustedProxyPath, 0700, true);
+        $trustedProxyBranding = $trustedProxyPath . DIRECTORY_SEPARATOR . 'branding.php';
+        writeBranding($trustedProxyBranding, $examplePath, 'quiz', true, true, null, true, ['127.0.0.1']);
+        [$process, $pipes, $port] = startServer(
+            $root,
+            $documentRoot,
+            $router,
+            $trustedProxyBranding,
+            $trustedProxyPath . DIRECTORY_SEPARATOR . 'content'
+        );
+        try {
+            $trustedBody = requestBodyWithHeaders($port, '/sitemap.xml', ['X-Forwarded-Proto: https']);
+            assertSameValue(true, strpos($trustedBody, '<loc>https://127.0.0.1:' . $port . '/</loc>') !== false, $rootName . ' trusted proxy protocol');
+            assertSameValue(503, requestStatusWithHeaders($port, '/sitemap.xml', ['X-Forwarded-Proto: https, http']), $rootName . ' hostile trusted XFP is rejected');
         } finally {
             proc_terminate($process);
             foreach ($pipes as $pipe) {

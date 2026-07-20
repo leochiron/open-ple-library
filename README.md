@@ -144,12 +144,13 @@ errors are hidden by default; set `APP_ENV=development` only in a local
 development environment.
 
 `robots.txt` and `sitemap.xml` are generated through the same PHP front
-controller for both supported document roots. Their canonical URL is derived
-from the request host and scheme, so the old hard-coded
-`ple-sansfrontieres.org` sitemap is no longer shipped. A reverse proxy must
-therefore preserve the public `Host` and HTTPS scheme. A future deployment
-setting such as `public_base_url` is preferable for proxies that cannot preserve
-those headers, but is intentionally outside the application-profile lot.
+controller for both supported document roots. Set `public_base_url` to the
+deployment origin, for example `https://courses.example.org`; this validated
+value takes priority over request headers. Without it, the application validates
+`Host` strictly and derives HTTPS from the server. `X-Forwarded-Proto` is ignored
+unless `trust_forwarded_proto=true` and the request comes from an IP explicitly
+listed in `trusted_proxy_ips`. The old hard-coded `ple-sansfrontieres.org`
+sitemap is no longer shipped.
 
 ### On Shared Hosting (IONOS, OVH, O2Switch, etc.)
 
@@ -427,6 +428,7 @@ roots using PHP's built-in HTTP server:
 ```bash
 php tests/ApplicationProfileTest.php
 php tests/ApplicationRouterTest.php
+php tests/PublicUrlResolverTest.php
 php tests/RouteIntegrationTest.php
 php tests/WebServerRulesTest.php
 ```
