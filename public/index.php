@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-// TEMP: verbose error display for debugging. Remove or disable after diagnosis.
 error_reporting(E_ALL);
 // Suppress deprecation warnings from google/apiclient v2.0 (compatible with PHP 8.1+)
 error_reporting(error_reporting() & ~E_DEPRECATED & ~E_USER_DEPRECATED);
-ini_set('display_errors', '1');
+$isDevelopment = getenv('APP_ENV') === 'development';
+ini_set('display_errors', $isDevelopment ? '1' : '0');
 ini_set('log_errors', '1');
 ini_set('error_log', __DIR__ . '/../storage/php-error.log');
 
@@ -47,6 +47,8 @@ use App\Controllers\QuizAdminController;
 use App\Controllers\QuizController;
 use App\Controllers\SyncController;
 use App\Services\AuthService;
+use App\Services\ApplicationProfile;
+use App\Services\ApplicationRouter;
 use App\Services\FileSystemService;
 use App\Services\GoogleDriveService;
 use App\Services\I18nService;
@@ -77,48 +79,61 @@ require __DIR__ . '/../app/Helpers/markdown.php';
 $config = require __DIR__ . '/../app/Config/config.php';
 $translations = require __DIR__ . '/../app/Config/i18n.php';
 
-// If Google Drive is enabled but Google Client is unavailable, disable gracefully
-if (!class_exists('Google_Client')) {
-    if (!empty($config['branding']['google_drive_enabled'])) {
-        error_log('Google Drive disabled: composer autoload or google/apiclient not available.');
-        $config['branding']['google_drive_enabled'] = false;
-    }
+try {
+    $applicationProfile = ApplicationProfile::fromBranding($config['branding']);
+    $applicationRouter = new ApplicationRouter($applicationProfile);
+    $routeCategory = $applicationRouter->classify($_SERVER['REQUEST_URI'] ?? '/');
+} catch (InvalidArgumentException $exception) {
+    error_log('Application configuration error: ' . $exception->getMessage());
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Service temporarily unavailable.';
+    exit;
 }
 
-// Ensure content directory exists to avoid runtime errors on first deploy.
-if (!is_dir($config['content_path'])) {
-    mkdir($config['content_path'], 0755, true);
+if ($routeCategory === ApplicationRouter::MAINTENANCE) {
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Service temporarily unavailable.';
+    exit;
 }
 
-$security = new SecurityService($config['content_path']);
-$fileSystem = new FileSystemService($config['content_path'], $security);
-$mime = new MimeService();
-$zip = new ZipService();
+if ($routeCategory === ApplicationRouter::UNAVAILABLE
+    || $routeCategory === ApplicationRouter::DIAGNOSTIC
+    || $routeCategory === ApplicationRouter::PUBLIC_RESOURCE) {
+    http_response_code(404);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Not found';
+    exit;
+}
+
+// Session and translations are shared by the library and quiz modules.
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 $i18n = new I18nService($config, $translations);
 $i18n->detectLanguage();
-$auth = new AuthService($config['branding']);
-$googleDrive = new GoogleDriveService($config);
 
 // ============================================================
 // QUIZ MODULE ROUTES (own authentication: room PIN + personal
 // code for students, dedicated password for the teacher admin —
 // independent from the optional library password)
 // ============================================================
-$quizPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-$quizPath = preg_replace('#^/index\.php#', '', $quizPath) ?: '/';
-if ($quizPath === '/quiz' || strpos($quizPath, '/quiz/') === 0
-    || $quizPath === '/quiz-admin' || strpos($quizPath, '/quiz-admin/') === 0) {
+if ($routeCategory === ApplicationRouter::QUIZ || $routeCategory === ApplicationRouter::QUIZ_ADMIN) {
     try {
         $quizStorage = __DIR__ . '/../storage';
         $quizDb = new App\Services\QuizDbService($quizStorage);
         $quizService = new App\Services\QuizService($quizDb, $config, $quizStorage);
+        $quizPath = ApplicationRouter::normalizePath($_SERVER['REQUEST_URI'] ?? '/');
 
-        if (strpos($quizPath, '/quiz-admin') === 0) {
+        if ($routeCategory === ApplicationRouter::QUIZ_ADMIN) {
             (new QuizAdminController($quizService, $i18n, $config))
                 ->handle(substr($quizPath, strlen('/quiz-admin')));
         } else {
+            // In quiz-only mode, / is an alias for the canonical /quiz entry.
+            $quizSubPath = $quizPath === '/' ? '' : substr($quizPath, strlen('/quiz'));
             (new QuizController($quizService, $i18n, $config))
-                ->handle(substr($quizPath, strlen('/quiz')));
+                ->handle($quizSubPath);
         }
     } catch (Throwable $e) {
         http_response_code(500);
@@ -127,6 +142,23 @@ if ($quizPath === '/quiz' || strpos($quizPath, '/quiz/') === 0
     }
     exit;
 }
+
+// Library services are initialized only after the top-level feature gate.
+// This prevents quiz-only requests from creating content/ or loading Drive.
+if (!class_exists('Google_Client') && !empty($config['branding']['google_drive_enabled'])) {
+    error_log('Google Drive disabled: composer autoload or google/apiclient not available.');
+    $config['branding']['google_drive_enabled'] = false;
+}
+if (!is_dir($config['content_path'])) {
+    mkdir($config['content_path'], 0755, true);
+}
+
+$security = new SecurityService($config['content_path']);
+$fileSystem = new FileSystemService($config['content_path'], $security);
+$mime = new MimeService();
+$zip = new ZipService();
+$auth = new AuthService($config['branding']);
+$googleDrive = new GoogleDriveService($config);
 
 // ============================================================
 // PUBLIC RAW RESOURCES (.md / .skill)
@@ -185,19 +217,12 @@ $errorController = new ErrorController($i18n, $config);
 $libraryController = new LibraryController($fileSystem, $mime, $security, $i18n, $config);
 $syncController = new SyncController($googleDrive, $i18n, $config);
 
-// ============================================================
-// HANDLE /DEBUG ROUTE (diagnostic page)
-// ============================================================
 $requestUri = $_SERVER['REQUEST_URI'] ?? '';
-if (strpos($requestUri, '/debug') === 0 || strpos($requestUri, 'index.php/debug') !== false) {
-    require __DIR__ . '/debug.php';
-    exit;
-}
 
 // ============================================================
 // HANDLE /SYNC ROUTE BEFORE TRY-CATCH (to prevent HTML error pages)
 // ============================================================
-if (strpos($requestUri, '/sync') === 0 || strpos($requestUri, 'index.php/sync') !== false) {
+if ($routeCategory === ApplicationRouter::SYNC) {
     try {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Set JSON headers for POST (sync execution)

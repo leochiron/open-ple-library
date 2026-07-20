@@ -115,6 +115,34 @@ A lightweight, public, read-only PHP interface for managing pedagogical librarie
 
 ## Production Deployment
 
+### Application profiles
+
+Each deployment can expose the library, the monitored quiz module, or both.
+Set the profile in `app/Config/branding.php`:
+
+```php
+'app_mode' => 'hybrid', // library | quiz | hybrid
+'quiz' => [
+    'enabled' => true,
+    'show_admin_link' => true,
+],
+```
+
+- `library`: the library stays at `/`; all `/quiz` and `/quiz-admin` routes return 404.
+- `quiz`: the student join page is served at `/` and remains available at `/quiz`; library, sync and pedagogical resource routes return 404.
+- `hybrid`: preserves the historical behavior, with the library at `/` and quiz at `/quiz`.
+
+Existing `branding.php` files without these keys automatically use `hybrid` with
+quiz enabled. Set `quiz.enabled` to `false` as an emergency stop. On a quiz-only
+deployment this makes `/` return a neutral 503 response and hides all quiz
+subroutes.
+
+Point the production document root at `public/` whenever the host allows it. The
+repository-root fallback remains supported, but relies on the root `.htaccess`
+to deny direct access to `app/`, `storage/`, `content/` and `.git/`. Detailed PHP
+errors are hidden by default; set `APP_ENV=development` only in a local
+development environment.
+
 ### On Shared Hosting (IONOS, OVH, O2Switch, etc.)
 
 1. **Upload project files:**

@@ -10,7 +10,16 @@ if ($contentPath === false) {
 
 // Load branding configuration
 $brandingPath = __DIR__ . '/branding.php';
+$testBrandingPath = getenv('APP_ENV') === 'testing' ? getenv('PLE_TEST_BRANDING') : false;
+if (is_string($testBrandingPath) && $testBrandingPath !== '' && is_file($testBrandingPath)) {
+    $brandingPath = $testBrandingPath;
+}
 $branding = file_exists($brandingPath) ? require $brandingPath : require __DIR__ . '/branding.example.php';
+
+$testContentPath = getenv('APP_ENV') === 'testing' ? getenv('PLE_TEST_CONTENT_PATH') : false;
+if (is_string($testContentPath) && $testContentPath !== '') {
+    $contentPath = $testContentPath;
+}
 
 // Provide sane fallbacks when a deployment's branding.php predates new keys
 $defaultLanguage = $branding['default_language'] ?? 'fr';

@@ -1,6 +1,9 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
+
+    # The diagnostic script must never bypass the application profile router.
+    RewriteRule ^debug(?:\.php)?/?$ /index.php/debug.php [L]
     
     # Don't rewrite actual files
     RewriteCond %{REQUEST_FILENAME} -f

@@ -5,7 +5,7 @@
     RewriteBase /
     
     # Prevent direct access to certain directories
-    RewriteRule ^(app|storage|\.git) - [F,L]
+    RewriteRule ^(app|storage|content|\.git)(/|$) - [F,L]
     
     # Skip rewrites for actual files and directories
     RewriteCond %{REQUEST_FILENAME} -f [OR]
