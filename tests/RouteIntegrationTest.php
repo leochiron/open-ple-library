@@ -31,6 +31,29 @@ function removeTestDirectory(string $path): void
     rmdir($path);
 }
 
+function copyTestDirectory(string $source, string $destination, ?string $excludedPath = null): void
+{
+    if (!mkdir($destination, 0700, true) && !is_dir($destination)) {
+        throw new RuntimeException('Unable to create copied test directory');
+    }
+    $items = scandir($source) ?: [];
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+        $sourcePath = $source . DIRECTORY_SEPARATOR . $item;
+        if ($excludedPath !== null && realpath($sourcePath) === realpath($excludedPath)) {
+            continue;
+        }
+        $destinationPath = $destination . DIRECTORY_SEPARATOR . $item;
+        if (is_dir($sourcePath)) {
+            copyTestDirectory($sourcePath, $destinationPath, $excludedPath);
+        } elseif (!copy($sourcePath, $destinationPath)) {
+            throw new RuntimeException('Unable to copy integration fixture ' . $sourcePath);
+        }
+    }
+}
+
 function freePort(): int
 {
     $socket = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
@@ -164,6 +187,15 @@ function requestBodyWithHeaders(int $port, string $path, array $headers): string
         usleep(20000);
     }
     return '';
+}
+
+function assertNeutralIncidentResponse(string $body, string $message): void
+{
+    assertSameValue(
+        1,
+        preg_match('/^Service temporarily unavailable\. Incident: [a-zA-Z0-9]+$/', $body),
+        $message
+    );
 }
 
 function writeBranding(
@@ -387,7 +419,7 @@ try {
             assertSameValue(200, requestStatus($port, '/'), $rootName . ' invalid SEO URL does not break homepage');
             assertSameValue(200, requestStatus($port, '/quiz'), $rootName . ' invalid SEO URL does not break quiz route');
             assertSameValue(503, requestStatus($port, '/robots.txt'), $rootName . ' invalid configured URL robots');
-            assertSameValue('Service temporarily unavailable.', requestBody($port, '/robots.txt'), $rootName . ' invalid URL response remains neutral');
+            assertNeutralIncidentResponse(requestBody($port, '/robots.txt'), $rootName . ' invalid URL response remains neutral');
         } finally {
             proc_terminate($process);
             foreach ($pipes as $pipe) {
@@ -415,7 +447,7 @@ try {
             assertSameValue(503, requestStatus($port, '/sitemap.xml'), $rootName . ' production sitemap requires configured URL');
             assertSameValue(503, requestStatusWithHeaders($port, '/sitemap.xml', ['Host: valid.example']), $rootName . ' production valid Host cannot replace configuration');
             assertSameValue(503, requestStatusWithHeaders($port, '/sitemap.xml', ['Host: bad_host.example']), $rootName . ' production hostile Host remains neutral without configuration');
-            assertSameValue('Service temporarily unavailable.', requestBody($port, '/robots.txt'), $rootName . ' missing production URL response remains neutral');
+            assertNeutralIncidentResponse(requestBody($port, '/robots.txt'), $rootName . ' missing production URL response remains neutral');
         } finally {
             proc_terminate($process);
             foreach ($pipes as $pipe) {
@@ -488,7 +520,7 @@ try {
     [$process, $pipes, $port] = startServer($root, $root . '/public', $root . '/public/index.php', $invalidBranding, $invalidPath . '/content');
     try {
         assertSameValue(503, requestStatus($port, '/'), 'Invalid configuration must return 503');
-        assertSameValue('Service temporarily unavailable.', requestBody($port, '/'), 'Invalid configuration response must remain neutral');
+        assertNeutralIncidentResponse(requestBody($port, '/'), 'Invalid configuration response must remain neutral');
     } finally {
         proc_terminate($process);
         foreach ($pipes as $pipe) {
@@ -506,6 +538,129 @@ try {
         assertSameValue(503, requestStatus($port, '/'), 'Stopped quiz-only homepage must return 503');
         assertSameValue(404, requestStatus($port, '/quiz'), 'Stopped quiz subroutes must return 404');
         assertSameValue(false, is_dir($stoppedPath . '/content'), 'Stopped quiz must not initialize content');
+    } finally {
+        proc_terminate($process);
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+        proc_close($process);
+    }
+
+    $brokenConfigPath = $temporaryRoot . DIRECTORY_SEPARATOR . 'broken-config';
+    mkdir($brokenConfigPath, 0700, true);
+    $brokenBranding = $brokenConfigPath . DIRECTORY_SEPARATOR . 'branding.php';
+    file_put_contents($brokenBranding, "<?php\nreturn null;\n");
+    [$process, $pipes, $port] = startServer(
+        $root,
+        $root . '/public',
+        $root . '/public/index.php',
+        $brokenBranding,
+        $brokenConfigPath . '/content'
+    );
+    try {
+        assertSameValue(503, requestStatus($port, '/'), 'Malformed branding return must be contained');
+        assertNeutralIncidentResponse(requestBody($port, '/'), 'Malformed branding response must remain neutral');
+    } finally {
+        proc_terminate($process);
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+        proc_close($process);
+    }
+
+    $missingDependencyPath = $temporaryRoot . DIRECTORY_SEPARATOR . 'missing-dependency';
+    mkdir($missingDependencyPath, 0700, true);
+    $missingDependencyBranding = $missingDependencyPath . DIRECTORY_SEPARATOR . 'branding.php';
+    file_put_contents(
+        $missingDependencyBranding,
+        "<?php\nMissingDeploymentDependency::load();\nreturn [];\n"
+    );
+    [$process, $pipes, $port] = startServer(
+        $root,
+        $root . '/public',
+        $root . '/public/index.php',
+        $missingDependencyBranding,
+        $missingDependencyPath . '/content'
+    );
+    try {
+        assertSameValue(503, requestStatus($port, '/'), 'Missing bootstrap dependency must be contained');
+        assertNeutralIncidentResponse(requestBody($port, '/'), 'Missing dependency response must remain neutral');
+    } finally {
+        proc_terminate($process);
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+        proc_close($process);
+    }
+
+    $partialDeploymentRoot = $temporaryRoot . DIRECTORY_SEPARATOR . 'partial-deployment';
+    copyTestDirectory(
+        $root . DIRECTORY_SEPARATOR . 'app',
+        $partialDeploymentRoot . DIRECTORY_SEPARATOR . 'app',
+        $root . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'Services' . DIRECTORY_SEPARATOR . 'ApplicationProfile.php'
+    );
+    mkdir($partialDeploymentRoot . DIRECTORY_SEPARATOR . 'public', 0700, true);
+    copy(
+        $root . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'index.php',
+        $partialDeploymentRoot . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'index.php'
+    );
+    $partialBranding = $partialDeploymentRoot . DIRECTORY_SEPARATOR . 'branding.php';
+    writeBranding($partialBranding, $examplePath, 'hybrid');
+    [$process, $pipes, $port] = startServer(
+        $root,
+        $partialDeploymentRoot . DIRECTORY_SEPARATOR . 'public',
+        $partialDeploymentRoot . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'index.php',
+        $partialBranding,
+        $partialDeploymentRoot . DIRECTORY_SEPARATOR . 'content'
+    );
+    try {
+        assertSameValue(503, requestStatus($port, '/'), 'Missing ApplicationProfile deployment must be contained');
+        assertNeutralIncidentResponse(requestBody($port, '/'), 'Missing ApplicationProfile response must remain neutral');
+    } finally {
+        proc_terminate($process);
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+        proc_close($process);
+    }
+
+    $blockedContentPath = $temporaryRoot . DIRECTORY_SEPARATOR . 'blocked-content';
+    mkdir($blockedContentPath, 0700, true);
+    $blockedBranding = $blockedContentPath . DIRECTORY_SEPARATOR . 'branding.php';
+    $contentFile = $blockedContentPath . DIRECTORY_SEPARATOR . 'not-a-directory';
+    file_put_contents($contentFile, 'fixture');
+    writeBranding($blockedBranding, $examplePath, 'library');
+    [$process, $pipes, $port] = startServer(
+        $root,
+        $root . '/public',
+        $root . '/public/index.php',
+        $blockedBranding,
+        $contentFile
+    );
+    try {
+        assertSameValue(500, requestStatus($port, '/'), 'Uncreatable content directory must be contained');
+        assertNeutralIncidentResponse(requestBody($port, '/'), 'Content bootstrap failure must remain neutral');
+    } finally {
+        proc_terminate($process);
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+        proc_close($process);
+    }
+
+    $missingFrontControllerRoot = $temporaryRoot . DIRECTORY_SEPARATOR . 'missing-front-controller';
+    mkdir($missingFrontControllerRoot, 0700, true);
+    copy($root . '/index.php', $missingFrontControllerRoot . DIRECTORY_SEPARATOR . 'index.php');
+    [$process, $pipes, $port] = startServer(
+        $root,
+        $missingFrontControllerRoot,
+        $missingFrontControllerRoot . DIRECTORY_SEPARATOR . 'index.php',
+        $invalidBranding,
+        $missingFrontControllerRoot . DIRECTORY_SEPARATOR . 'content'
+    );
+    try {
+        assertSameValue(503, requestStatus($port, '/'), 'Repository shim must detect a missing public front controller');
+        assertNeutralIncidentResponse(requestBody($port, '/'), 'Missing front controller response must remain neutral');
     } finally {
         proc_terminate($process);
         foreach ($pipes as $pipe) {

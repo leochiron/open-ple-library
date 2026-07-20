@@ -178,9 +178,14 @@ sitemap is no longer shipped.
 
 5. **Set file permissions:**
    ```bash
-   chmod 755 content/           # Directory readable by web server
-   chmod 644 storage/           # Allow logs to be written
+   chmod 755 content/           # Directory traversable/readable by web server
+   chmod 750 storage/           # Directory traversable/writable by its web-server group
    ```
+
+   `storage/` is a directory, so it needs execute permission for traversal and
+   write permission for the PHP user or group. Never apply a file-only mode such
+   as `644` to this directory. Depending on the hosting account ownership model,
+   `chmod 700 storage/` or `chmod 770 storage/` may be more appropriate.
 
 ### Document Root Fallback (.htaccess)
 

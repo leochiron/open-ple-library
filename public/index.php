@@ -8,13 +8,66 @@ error_reporting(error_reporting() & ~E_DEPRECATED & ~E_USER_DEPRECATED);
 $isDevelopment = getenv('APP_ENV') === 'development';
 ini_set('display_errors', $isDevelopment ? '1' : '0');
 ini_set('log_errors', '1');
-ini_set('error_log', __DIR__ . '/../storage/php-error.log');
-
-// Load Composer autoload for external libraries (Google API client, etc.)
-$vendorAutoload = __DIR__ . '/../vendor/autoload.php';
-if (is_file($vendorAutoload)) {
-    require $vendorAutoload;
+$runtimeStorage = __DIR__ . '/../storage';
+$runtimeLog = $runtimeStorage . '/php-error.log';
+if (is_dir($runtimeStorage)
+    && is_writable($runtimeStorage)
+    && (!is_file($runtimeLog) || is_writable($runtimeLog))) {
+    ini_set('error_log', $runtimeLog);
+} else {
+    // An empty destination delegates logging to the active SAPI logger.
+    ini_set('error_log', '');
 }
+
+$renderIncident = static function (Throwable $exception, string $context, int $status = 500) use ($isDevelopment): void {
+    static $responseSent = false;
+    if ($responseSent) {
+        return;
+    }
+    $responseSent = true;
+
+    try {
+        $incidentId = bin2hex(random_bytes(6));
+    } catch (Throwable $randomFailure) {
+        $incidentId = str_replace('.', '', uniqid('fallback', true));
+    }
+
+    error_log(sprintf(
+        '[incident:%s] %s: %s: %s in %s:%d',
+        $incidentId,
+        $context,
+        get_class($exception),
+        $exception->getMessage(),
+        $exception->getFile(),
+        $exception->getLine()
+    ));
+
+    if (!headers_sent()) {
+        http_response_code($status);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
+    if ($isDevelopment) {
+        echo 'Application error. Incident: ' . $incidentId . "\n";
+        echo get_class($exception) . ': ' . $exception->getMessage();
+        return;
+    }
+    echo 'Service temporarily unavailable. Incident: ' . $incidentId;
+};
+
+set_exception_handler(static function (Throwable $exception) use ($renderIncident): void {
+    $renderIncident($exception, 'Unhandled application failure');
+});
+register_shutdown_function(static function () use ($renderIncident): void {
+    $error = error_get_last();
+    if (!is_array($error) || !in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
+        return;
+    }
+    $renderIncident(
+        new ErrorException($error['message'], 0, $error['type'], $error['file'], $error['line']),
+        'Fatal application failure'
+    );
+});
 
 $reqUri = $_SERVER['REQUEST_URI'] ?? '';
 $earlyPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
@@ -61,22 +114,17 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
-require __DIR__ . '/../app/Helpers/view.php';
-require __DIR__ . '/../app/Helpers/url.php';
-require __DIR__ . '/../app/Helpers/markdown.php';
-
-$config = require __DIR__ . '/../app/Config/config.php';
-$translations = require __DIR__ . '/../app/Config/i18n.php';
-
 try {
+    $config = require __DIR__ . '/../app/Config/config.php';
+    $translations = require __DIR__ . '/../app/Config/i18n.php';
+    if (!is_array($config) || !isset($config['branding']) || !is_array($config['branding']) || !is_array($translations)) {
+        throw new UnexpectedValueException('Application configuration files must return arrays.');
+    }
     $applicationProfile = ApplicationProfile::fromBranding($config['branding']);
     $applicationRouter = new ApplicationRouter($applicationProfile);
     $routeCategory = $applicationRouter->classify($_SERVER['REQUEST_URI'] ?? '/');
-} catch (InvalidArgumentException $exception) {
-    error_log('Application configuration error: ' . $exception->getMessage());
-    http_response_code(503);
-    header('Content-Type: text/plain; charset=utf-8');
-    echo 'Service temporarily unavailable.';
+} catch (Throwable $exception) {
+    $renderIncident($exception, 'Application bootstrap failure', 503);
     exit;
 }
 
@@ -84,11 +132,8 @@ try {
 if ($earlyPath === '/robots.txt' || $earlyPath === '/sitemap.xml') {
     try {
         $publicBaseUrl = PublicUrlResolver::fromConfig($config)->resolve($_SERVER);
-    } catch (InvalidArgumentException $exception) {
-        error_log('Public URL configuration error: ' . $exception->getMessage());
-        http_response_code(503);
-        header('Content-Type: text/plain; charset=utf-8');
-        echo 'Service temporarily unavailable.';
+    } catch (Throwable $exception) {
+        $renderIncident($exception, 'Public URL bootstrap failure', 503);
         exit;
     }
 
@@ -116,12 +161,19 @@ if ($routeCategory === ApplicationRouter::UNAVAILABLE
     exit;
 }
 
-// Session and translations are shared by the library and quiz modules.
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+try {
+    require __DIR__ . '/../app/Helpers/view.php';
+    require __DIR__ . '/../app/Helpers/url.php';
+    // Session and translations are shared by the library and quiz modules.
+    if (session_status() === PHP_SESSION_NONE && !session_start()) {
+        throw new RuntimeException('Unable to start the application session.');
+    }
+    $i18n = new I18nService($config, $translations);
+    $i18n->detectLanguage();
+} catch (Throwable $exception) {
+    $renderIncident($exception, 'Shared service bootstrap failure');
+    exit;
 }
-$i18n = new I18nService($config, $translations);
-$i18n->detectLanguage();
 
 // ============================================================
 // QUIZ MODULE ROUTES (own authentication: room PIN + personal
@@ -145,29 +197,42 @@ if ($routeCategory === ApplicationRouter::QUIZ || $routeCategory === Application
                 ->handle($quizSubPath);
         }
     } catch (Throwable $e) {
-        http_response_code(500);
-        echo 'Quiz module error.';
-        error_log('Quiz bootstrap error: ' . $e->getMessage() . ' | ' . $e->getFile() . ':' . $e->getLine());
+        $renderIncident($e, 'Quiz module bootstrap failure');
     }
     exit;
 }
 
 // Library services are initialized only after the top-level feature gate.
 // This prevents quiz-only requests from creating content/ or loading Drive.
-if (!class_exists('Google_Client') && !empty($config['branding']['google_drive_enabled'])) {
-    error_log('Google Drive disabled: composer autoload or google/apiclient not available.');
-    $config['branding']['google_drive_enabled'] = false;
-}
-if (!is_dir($config['content_path'])) {
-    mkdir($config['content_path'], 0755, true);
-}
+try {
+    require __DIR__ . '/../app/Helpers/markdown.php';
+    $vendorAutoload = __DIR__ . '/../vendor/autoload.php';
+    if (is_file($vendorAutoload)) {
+        require $vendorAutoload;
+    }
+    if (!class_exists('Google_Client') && !empty($config['branding']['google_drive_enabled'])) {
+        error_log('Google Drive disabled: composer autoload or google/apiclient not available.');
+        $config['branding']['google_drive_enabled'] = false;
+    }
+    if (!isset($config['content_path']) || !is_string($config['content_path']) || $config['content_path'] === '') {
+        throw new UnexpectedValueException('The content path is not configured.');
+    }
+    if (!is_dir($config['content_path'])
+        && !mkdir($config['content_path'], 0755, true)
+        && !is_dir($config['content_path'])) {
+        throw new RuntimeException('Unable to create the content directory.');
+    }
 
-$security = new SecurityService($config['content_path']);
-$fileSystem = new FileSystemService($config['content_path'], $security);
-$mime = new MimeService();
-$zip = new ZipService();
-$auth = new AuthService($config['branding']);
-$googleDrive = new GoogleDriveService($config);
+    $security = new SecurityService($config['content_path']);
+    $fileSystem = new FileSystemService($config['content_path'], $security);
+    $mime = new MimeService();
+    $zip = new ZipService();
+    $auth = new AuthService($config['branding']);
+    $googleDrive = new GoogleDriveService($config);
+} catch (Throwable $exception) {
+    $renderIncident($exception, 'Library service bootstrap failure');
+    exit;
+}
 
 // ============================================================
 // PUBLIC RAW RESOURCES (.md / .skill)

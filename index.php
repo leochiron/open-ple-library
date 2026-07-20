@@ -16,4 +16,33 @@ if ($earlyPath === '/favicon.ico') {
 }
 
 // Front controller shim so the project works when the hosting document root is the repository root.
-require __DIR__ . '/public/index.php';
+$frontController = __DIR__ . '/public/index.php';
+if (!is_file($frontController) || !is_readable($frontController)) {
+	$incidentId = str_replace('.', '', uniqid('bootstrap', true));
+	error_log('[incident:' . $incidentId . '] Repository shim cannot read public/index.php');
+	http_response_code(503);
+	header('Content-Type: text/plain; charset=utf-8');
+	header('Cache-Control: no-store');
+	echo 'Service temporarily unavailable. Incident: ' . $incidentId;
+	exit;
+}
+
+try {
+	require $frontController;
+} catch (Throwable $exception) {
+	$incidentId = str_replace('.', '', uniqid('bootstrap', true));
+	error_log(sprintf(
+		'[incident:%s] Repository shim bootstrap failure: %s: %s in %s:%d',
+		$incidentId,
+		get_class($exception),
+		$exception->getMessage(),
+		$exception->getFile(),
+		$exception->getLine()
+	));
+	if (!headers_sent()) {
+		http_response_code(500);
+		header('Content-Type: text/plain; charset=utf-8');
+		header('Cache-Control: no-store');
+	}
+	echo 'Service temporarily unavailable. Incident: ' . $incidentId;
+}
