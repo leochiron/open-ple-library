@@ -46,6 +46,7 @@ $renderIncident = static function (Throwable $exception, string $context, int $s
         http_response_code($status);
         header('Content-Type: text/plain; charset=utf-8');
         header('Cache-Control: no-store');
+        header('X-Robots-Tag: noindex');
     }
     if ($isDevelopment) {
         echo 'Application error. Incident: ' . $incidentId . "\n";
@@ -140,9 +141,20 @@ if ($earlyPath === '/robots.txt' || $earlyPath === '/sitemap.xml') {
     if ($earlyPath === '/robots.txt') {
         serveRobotsTxt($publicBaseUrl);
     } else {
-        serveSitemapXml($publicBaseUrl);
+        serveSitemapXml($publicBaseUrl, $applicationProfile->libraryEnabled());
     }
     exit;
+}
+
+// Every dynamic response is private to search engines unless the library
+// controller explicitly confirms a canonical public homepage.
+header('X-Robots-Tag: noindex');
+
+$config['seo_canonical_homepage'] = null;
+try {
+    $config['seo_canonical_homepage'] = PublicUrlResolver::fromConfig($config)->configuredBaseUrl();
+} catch (Throwable $exception) {
+    error_log('Canonical homepage configuration ignored: ' . $exception->getMessage());
 }
 
 if ($routeCategory === ApplicationRouter::MAINTENANCE) {
@@ -567,20 +579,17 @@ function serveRobotsTxt(string $publicBaseUrl): void
     echo $content . "\n";
 }
 
-function serveSitemapXml(string $publicBaseUrl): void
+function serveSitemapXml(string $publicBaseUrl, bool $includeHomepage): void
 {
     header('Content-Type: application/xml; charset=utf-8');
 
-    $homepage = htmlspecialchars($publicBaseUrl . '/', ENT_QUOTES | ENT_XML1, 'UTF-8');
-    $lastmod = gmdate('Y-m-d\TH:i:s\Z');
-
     echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
     echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
-    echo "  <url>\n";
-    echo "    <loc>{$homepage}</loc>\n";
-    echo "    <lastmod>{$lastmod}</lastmod>\n";
-    echo "    <changefreq>weekly</changefreq>\n";
-    echo "    <priority>1.0</priority>\n";
-    echo "  </url>\n";
+    if ($includeHomepage) {
+        $homepage = htmlspecialchars($publicBaseUrl . '/', ENT_QUOTES | ENT_XML1, 'UTF-8');
+        echo "  <url>\n";
+        echo "    <loc>{$homepage}</loc>\n";
+        echo "  </url>\n";
+    }
     echo "</urlset>\n";
 }

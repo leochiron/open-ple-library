@@ -85,7 +85,8 @@ function startServer(
     $environment['PLE_TEST_BRANDING'] = $brandingPath;
     $environment['PLE_TEST_CONTENT_PATH'] = $contentPath;
     $environment['PLE_TEST_FRONT_CONTROLLER'] = $frontController;
-    $process = proc_open($command, [STDIN, ['pipe', 'w'], ['pipe', 'w']], $pipes, $root, $environment);
+    $nullDevice = PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
+    $process = proc_open($command, [STDIN, ['file', $nullDevice, 'a'], ['file', $nullDevice, 'a']], $pipes, $root, $environment);
     if (!is_resource($process)) {
         throw new RuntimeException('Unable to start the PHP test server');
     }
@@ -144,13 +145,41 @@ function requestBody(int $port, string $path): string
 
 function requestContentType(int $port, string $path): string
 {
-    $context = stream_context_create(['http' => ['ignore_errors' => true, 'timeout' => 3]]);
-    @file_get_contents('http://127.0.0.1:' . $port . $path, false, $context);
-    $headers = $http_response_header ?? [];
-    foreach ($headers as $header) {
-        if (stripos($header, 'Content-Type:') === 0) {
-            return trim(substr($header, strlen('Content-Type:')));
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        $context = stream_context_create(['http' => [
+            'ignore_errors' => true,
+            'timeout' => 3,
+            'header' => "Connection: close\r\n",
+        ]]);
+        @file_get_contents('http://127.0.0.1:' . $port . $path, false, $context);
+        $headers = $http_response_header ?? [];
+        foreach ($headers as $header) {
+            if (stripos($header, 'Content-Type:') === 0) {
+                return trim(substr($header, strlen('Content-Type:')));
+            }
         }
+        usleep(20000);
+    }
+    return '';
+}
+
+function requestHeader(int $port, string $path, string $headerName, string $method = 'GET', array $headers = []): string
+{
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        $context = stream_context_create(['http' => [
+            'ignore_errors' => true,
+            'timeout' => 3,
+            'method' => $method,
+            'header' => implode("\r\n", $headers),
+        ]]);
+        @file_get_contents('http://127.0.0.1:' . $port . $path, false, $context);
+        $responseHeaders = $http_response_header ?? [];
+        foreach ($responseHeaders as $header) {
+            if (stripos($header, $headerName . ':') === 0) {
+                return trim(substr($header, strlen($headerName) + 1));
+            }
+        }
+        usleep(20000);
     }
     return '';
 }
@@ -236,6 +265,8 @@ function createContentFixtures(string $contentPath): void
     file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'lesson.md', "# Fixture lesson\n");
     file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'package.skill', "fixture skill\n");
     file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'notes.txt', "fixture text\n");
+    file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'page.html', "<!doctype html><title>Fixture</title>\n");
+    file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'document.pdf', "%PDF-1.4\nfixture\n%%EOF\n");
     file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'course' . DIRECTORY_SEPARATOR . 'chapter.md', "# Chapter\n");
 }
 
@@ -277,6 +308,11 @@ try {
                 }
                 $assetPath = $rootName === 'public' ? '/assets/css/main.css' : '/public/assets/css/main.css';
                 assertSameValue(200, requestStatus($port, $assetPath), $rootName . ' static assets remain available');
+                assertSameValue('', requestHeader($port, $assetPath, 'X-Robots-Tag'), $rootName . ' static assets receive no SEO exclusion header');
+                assertSameValue('noindex', requestHeader($port, '/llms.txt', 'X-Robots-Tag'), $rootName . ' static LLM guidance is noindex');
+                if ($rootName === 'repository') {
+                    assertSameValue('noindex', requestHeader($port, '/LICENSE', 'X-Robots-Tag'), 'repository static LICENSE is noindex');
+                }
                 foreach (['/favicon.ico', '/robots.txt', '/sitemap.xml'] as $publicPath) {
                     assertSameValue(200, requestStatus($port, $publicPath . '?cache=1'), $rootName . ' exact public path with query ' . $publicPath);
                     assertSameValue(200, requestStatus($port, '/index.php' . $publicPath . '?cache=1'), $rootName . ' exact index public path ' . $publicPath);
@@ -291,12 +327,16 @@ try {
                 assertSameValue('text/plain; charset=utf-8', requestContentType($port, '/robots.txt?cache=1'), $rootName . ' robots content type');
                 assertSameValue(true, strpos($robotsBody, "User-agent: *") !== false, $rootName . ' robots body');
                 assertSameValue(true, strpos($robotsBody, 'Sitemap: ' . $expectedBaseUrl . '/sitemap.xml') !== false, $rootName . ' robots canonical sitemap URL');
+                assertSameValue(false, strpos($robotsBody, 'Disallow: /quiz') !== false, $rootName . ' robots does not hide noindex URLs from crawlers');
                 assertSameValue(false, strpos($robotsBody, 'ple-sansfrontieres.org') !== false, $rootName . ' robots has no historical domain');
 
                 $sitemapBody = requestBody($port, '/sitemap.xml?cache=1');
                 assertSameValue('application/xml; charset=utf-8', requestContentType($port, '/sitemap.xml?cache=1'), $rootName . ' sitemap content type');
                 assertSameValue(true, strpos($sitemapBody, '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">') !== false, $rootName . ' sitemap XML body');
-                assertSameValue(true, strpos($sitemapBody, '<loc>' . $expectedBaseUrl . '/</loc>') !== false, $rootName . ' sitemap canonical homepage URL');
+                assertSameValue($mode !== 'quiz', strpos($sitemapBody, '<loc>' . $expectedBaseUrl . '/</loc>') !== false, $rootName . ' sitemap homepage profile policy');
+                assertSameValue(false, strpos($sitemapBody, '<lastmod>') !== false, $rootName . ' sitemap omits dynamic lastmod');
+                assertSameValue(false, strpos($sitemapBody, '<changefreq>') !== false, $rootName . ' sitemap omits changefreq');
+                assertSameValue(false, strpos($sitemapBody, '<priority>') !== false, $rootName . ' sitemap omits priority');
                 assertSameValue(false, strpos($sitemapBody, 'ple-sansfrontieres.org') !== false, $rootName . ' sitemap has no historical domain');
                 if ($mode === 'quiz') {
                     assertSameValue(404, requestStatus($port, '/lesson.md'), $rootName . ' quiz markdown route');
@@ -305,8 +345,10 @@ try {
                     assertSameValue(false, is_dir($contentPath), $rootName . ' quiz request must not create content');
                     $joinBody = requestBody($port, '/');
                     assertSameValue(true, strpos($joinBody, 'href="/quiz-admin"') !== false, $rootName . ' quiz homepage exposes the configured admin link');
+                    assertSameValue('noindex', requestHeader($port, '/', 'X-Robots-Tag'), $rootName . ' quiz homepage noindex header');
+                    assertSameValue(true, strpos($joinBody, '<meta name="robots" content="noindex">') !== false, $rootName . ' quiz homepage noindex meta');
                     $untrustedForwardedBody = requestBodyWithHeaders($port, '/sitemap.xml', ['X-Forwarded-Proto: https']);
-                    assertSameValue(true, strpos($untrustedForwardedBody, '<loc>http://127.0.0.1:' . $port . '/</loc>') !== false, $rootName . ' ignores untrusted forwarded protocol');
+                    assertSameValue(false, strpos($untrustedForwardedBody, '<loc>') !== false, $rootName . ' quiz sitemap remains empty behind an untrusted proxy');
                     assertSameValue(503, requestStatusWithHeaders($port, '/sitemap.xml', ['Host: bad_host.example']), $rootName . ' hostile Host gets neutral SEO error');
                 } else {
                     assertSameValue(200, requestStatus($port, '/lesson.md'), $rootName . ' raw markdown fixture');
@@ -316,6 +358,14 @@ try {
                     assertSameValue(200, requestStatus($port, '/course'), $rootName . ' folder navigation fixture');
                     assertSameValue(200, requestStatus($port, '/course/chapter.md'), $rootName . ' nested raw markdown fixture');
                     assertSameValue("# Fixture lesson\n", requestBody($port, '/lesson.md'), $rootName . ' markdown is served raw');
+                    foreach (['/course', '/notes.txt', '/lesson.md', '/page.html', '/document.pdf+open', '/document.pdf+download'] as $internalPath) {
+                        assertSameValue('noindex', requestHeader($port, $internalPath, 'X-Robots-Tag'), $rootName . ' internal response noindex ' . $internalPath);
+                    }
+                    assertSameValue('noindex', requestHeader($port, '/document.pdf+open', 'X-Robots-Tag', 'HEAD'), $rootName . ' PDF HEAD noindex');
+                    assertSameValue(206, requestStatusWithHeaders($port, '/document.pdf+open', ['Range: bytes=0-3']), $rootName . ' PDF range response');
+                    assertSameValue('noindex', requestHeader($port, '/document.pdf+open', 'X-Robots-Tag', 'GET', ['Range: bytes=0-3']), $rootName . ' PDF range noindex');
+                    assertSameValue(true, strpos(requestBody($port, '/course'), '<meta name="robots" content="noindex">') !== false, $rootName . ' internal HTML meta noindex');
+                    assertSameValue(false, strpos(requestBody($port, '/course'), 'rel="canonical"') !== false, $rootName . ' internal HTML has no canonical link');
                 }
             } finally {
                 proc_terminate($process);
@@ -382,7 +432,7 @@ try {
         $configuredUrlPath = $temporaryRoot . DIRECTORY_SEPARATOR . $rootName . '-configured-url';
         mkdir($configuredUrlPath, 0700, true);
         $configuredUrlBranding = $configuredUrlPath . DIRECTORY_SEPARATOR . 'branding.php';
-        writeBranding($configuredUrlBranding, $examplePath, 'quiz', true, true, 'https://canonical.example:8443');
+        writeBranding($configuredUrlBranding, $examplePath, 'library', true, true, 'https://canonical.example:8443');
         [$process, $pipes, $port] = startServer(
             $root,
             $documentRoot,
@@ -395,6 +445,12 @@ try {
             assertSameValue(true, strpos(requestBody($port, '/robots.txt'), 'Sitemap: https://canonical.example:8443/sitemap.xml') !== false, $rootName . ' configured robots URL');
             assertSameValue(true, strpos(requestBody($port, '/sitemap.xml'), '<loc>https://canonical.example:8443/</loc>') !== false, $rootName . ' configured sitemap URL');
             assertSameValue(200, requestStatusWithHeaders($port, '/sitemap.xml', ['Host: bad_host.example']), $rootName . ' configured URL takes priority over hostile Host');
+            $homepageBody = requestBodyWithHeaders($port, '/', ['Host: hostile.example']);
+            assertSameValue('index, follow', requestHeader($port, '/', 'X-Robots-Tag', 'GET', ['Host: hostile.example']), $rootName . ' configured library homepage is indexable');
+            assertSameValue(true, strpos($homepageBody, '<meta name="robots" content="index,follow">') !== false, $rootName . ' homepage index meta');
+            assertSameValue(true, strpos($homepageBody, '<link rel="canonical" href="https://canonical.example:8443/">') !== false, $rootName . ' homepage canonical ignores Host');
+            assertSameValue('noindex', requestHeader($port, '/missing', 'X-Robots-Tag'), $rootName . ' dynamic errors are noindex');
+            assertSameValue(true, strpos(requestBody($port, '/missing'), '<meta name="robots" content="noindex">') !== false, $rootName . ' internal error meta noindex');
         } finally {
             proc_terminate($process);
             foreach ($pipes as $pipe) {
@@ -459,7 +515,7 @@ try {
         $trustedProxyPath = $temporaryRoot . DIRECTORY_SEPARATOR . $rootName . '-trusted-proxy';
         mkdir($trustedProxyPath, 0700, true);
         $trustedProxyBranding = $trustedProxyPath . DIRECTORY_SEPARATOR . 'branding.php';
-        writeBranding($trustedProxyBranding, $examplePath, 'quiz', true, true, null, true, ['127.0.0.1']);
+        writeBranding($trustedProxyBranding, $examplePath, 'library', true, true, null, true, ['127.0.0.1']);
         [$process, $pipes, $port] = startServer(
             $root,
             $documentRoot,

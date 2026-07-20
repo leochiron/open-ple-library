@@ -29,6 +29,9 @@
     Header set X-Frame-Options "SAMEORIGIN"
     Header set X-Content-Type-Options "nosniff"
     Header set X-XSS-Protection "1; mode=block"
+    <FilesMatch "(?i)^(LICENSE|llms\.txt|(?!robots\.txt$).+\.(pdf|md|markdown|txt|csv|tsv|rtf|epub|html|htm|skill|doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp))$">
+        Header set X-Robots-Tag "noindex"
+    </FilesMatch>
 </IfModule>
 
 # Gzip compression for faster loading

@@ -42,6 +42,13 @@ class LibraryController
         }
 
         if (is_dir($absolutePath)) {
+            $canonicalHomepage = $this->config['seo_canonical_homepage'] ?? null;
+            $seoIndexable = $relativePath === ''
+                && is_string($canonicalHomepage)
+                && $canonicalHomepage !== '';
+            if ($seoIndexable) {
+                header('X-Robots-Tag: index, follow');
+            }
             $entries = array_map(function (array $entry): array {
                 $entry['display_size'] = $entry['is_dir']
                     ? '—'
@@ -62,6 +69,8 @@ class LibraryController
                 'breadcrumbs' => $this->buildBreadcrumbs($relativePath),
                 'parentPath' => $this->getParentPath($relativePath),
                 'title' => $this->i18n->t('folder.heading'),
+                'seoIndexable' => $seoIndexable,
+                'canonicalUrl' => $seoIndexable ? $canonicalHomepage . '/' : null,
             ], $this->i18n, $this->config);
             return;
         }

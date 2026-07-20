@@ -44,6 +44,10 @@ assertSameValue(true, strpos($llmsRoot, '# Cours et Exercices de Léo Chiron') =
 assertSameValue(true, strpos($llmsRoot, 'ne peuvent pas être republiés ailleurs') !== false, 'LLM guidance must state the no-republication condition');
 assertSameValue(true, strpos($rootRules, 'RewriteRule ^llm\\.txt$ /llms.txt [R=301,L,NC]') !== false, 'Root rules must redirect the requested singular LLM.txt alias');
 assertSameValue(true, strpos($publicRules, 'RewriteRule ^llm\\.txt$ /llms.txt [R=301,L,NC]') !== false, 'Public rules must redirect the requested singular LLM.txt alias');
+assertSameValue(true, strpos($rootRules, 'LICENSE|llms\\.txt|(?!robots\\.txt$).+\\.(pdf|md|markdown|txt|csv|tsv|rtf|epub|html|htm|skill|doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp)') !== false, 'Root rules must target static pedagogical documents and LICENSE');
+assertSameValue(true, strpos($publicRules, 'LICENSE|llms\\.txt|(?!robots\\.txt$).+\\.(pdf|md|markdown|txt|csv|tsv|rtf|epub|html|htm|skill|doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp)') !== false, 'Public rules must target static pedagogical documents and LICENSE');
+assertSameValue(true, strpos($rootRules, 'Header set X-Robots-Tag "noindex"') !== false, 'Root static pedagogical files must be noindex');
+assertSameValue(true, strpos($publicRules, 'Header set X-Robots-Tag "noindex"') !== false, 'Public static pedagogical files must be noindex');
 
 assertSameValue(true, is_readable($contentRulesPath), 'PHP must retain filesystem read access to the content protection file');
 assertSameValue($contentRulesTemplate, $contentRules, 'Deployed content rules must match the canonical sync-safe template');

@@ -7,12 +7,14 @@ require __DIR__ . '/bootstrap.php';
 use App\Services\PublicUrlResolver;
 
 $configured = PublicUrlResolver::fromConfig(['public_base_url' => 'https://Courses.Example.org:8443/']);
+assertSameValue('https://courses.example.org:8443', $configured->configuredBaseUrl(), 'Configured origin accessor must return the validated URL');
 assertSameValue('https://courses.example.org:8443', $configured->resolve([
     'HTTP_HOST' => 'hostile.example',
     'HTTP_X_FORWARDED_PROTO' => 'http',
 ]), 'Configured public URL must be normalized and take priority');
 
 $fallback = PublicUrlResolver::fromConfig(['environment' => 'testing']);
+assertSameValue(null, $fallback->configuredBaseUrl(), 'Configured origin accessor must never expose a Host fallback');
 assertSameValue('http://localhost:8080', $fallback->resolve(['HTTP_HOST' => 'localhost:8080']), 'HTTP host fallback');
 assertSameValue('https://127.0.0.1', $fallback->resolve(['HTTP_HOST' => '127.0.0.1', 'HTTPS' => 'on']), 'Server HTTPS fallback');
 assertSameValue('http://[::1]:8080', $fallback->resolve(['HTTP_HOST' => '[::1]:8080']), 'IPv6 fallback');

@@ -83,6 +83,12 @@ final class PublicUrlResolver
         return $scheme . '://' . $authority;
     }
 
+    /** Returns only the validated configured origin, never a request Host fallback. */
+    public function configuredBaseUrl(): ?string
+    {
+        return $this->configuredBaseUrl;
+    }
+
     private static function normalizeConfiguredUrl(string $url): string
     {
         self::rejectControlCharacters($url);

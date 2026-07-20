@@ -23,6 +23,7 @@ if (!is_file($frontController) || !is_readable($frontController)) {
 	http_response_code(503);
 	header('Content-Type: text/plain; charset=utf-8');
 	header('Cache-Control: no-store');
+	header('X-Robots-Tag: noindex');
 	echo 'Service temporarily unavailable. Incident: ' . $incidentId;
 	exit;
 }
@@ -43,6 +44,7 @@ try {
 		http_response_code(500);
 		header('Content-Type: text/plain; charset=utf-8');
 		header('Cache-Control: no-store');
+		header('X-Robots-Tag: noindex');
 	}
 	echo 'Service temporarily unavailable. Incident: ' . $incidentId;
 }

@@ -27,3 +27,9 @@
     RewriteRule ^(.+)$ /index.php?path=$1 [L]
 </IfModule>
 
+<IfModule mod_headers.c>
+    <FilesMatch "(?i)^(LICENSE|llms\.txt|(?!robots\.txt$).+\.(pdf|md|markdown|txt|csv|tsv|rtf|epub|html|htm|skill|doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp))$">
+        Header set X-Robots-Tag "noindex"
+    </FilesMatch>
+</IfModule>
+

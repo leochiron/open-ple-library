@@ -9,7 +9,22 @@ $candidate = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? ''), DIRECTORY_SEPARATO
 // Mirror a normal web server: existing assets and PHP files are served
 // directly, while application URLs are sent to the selected front controller.
 if ($path !== '/' && $path !== '/robots.txt' && $path !== '/sitemap.xml' && is_file($candidate)) {
-    return false;
+    $basename = basename($candidate);
+    $isNoindexDocument = preg_match(
+        '/^(?:LICENSE|llms\.txt|.+\.(?:pdf|md|markdown|txt|csv|tsv|rtf|epub|html|htm|skill|doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp))$/i',
+        $basename
+    ) === 1;
+    if (!$isNoindexDocument) {
+        return false;
+    }
+
+    header('X-Robots-Tag: noindex');
+    header('Content-Type: ' . ($basename === 'llms.txt' || $basename === 'LICENSE' ? 'text/plain; charset=utf-8' : 'application/octet-stream'));
+    header('Content-Length: ' . filesize($candidate));
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') {
+        readfile($candidate);
+    }
+    return true;
 }
 
 $frontController = getenv('PLE_TEST_FRONT_CONTROLLER');

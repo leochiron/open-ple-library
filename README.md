@@ -154,6 +154,15 @@ unless `trust_forwarded_proto=true` and the request comes from an IP explicitly
 listed in `trusted_proxy_ips`. The old hard-coded `ple-sansfrontieres.org`
 sitemap is no longer shipped.
 
+Search indexing follows a homepage-only policy. The canonical library homepage
+is indexable in `library` and `hybrid` profiles when `public_base_url` is valid.
+All internal pages, quiz and administration routes, raw pedagogical resources,
+downloads, and PDF responses (including partial `206` previews) send an
+`X-Robots-Tag: noindex` response header. The sitemap contains only the homepage;
+in the `quiz` profile it remains empty. Do not add public pedagogical URLs to
+`robots.txt`: crawlers must be able to read their `noindex` response. Direct
+access to private filesystem directories remains blocked independently.
+
 ### On Shared Hosting (IONOS, OVH, O2Switch, etc.)
 
 1. **Upload project files:**
