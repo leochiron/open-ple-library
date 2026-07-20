@@ -99,4 +99,3 @@ Le lead et le testeur peuvent analyser en parallèle avant le développement, ma
 - revue du lead puis recette QA avant fusion ;
 - demande de fusion en brouillon tant que la recette n’est pas terminée ;
 - fusion dans `main` uniquement après décision du chef de projet.
-

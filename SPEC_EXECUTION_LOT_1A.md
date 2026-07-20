@@ -158,4 +158,3 @@ Le formulaire élève conserve l’action `/quiz/join` et toutes les URL interne
 - API MCP.
 
 Ces sujets suivent dans les lots 1B à 1D après validation du profil d’application.
-
