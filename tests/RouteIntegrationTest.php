@@ -223,6 +223,35 @@ try {
             }
             proc_close($process);
         }
+
+        $preloadedQuizPath = $temporaryRoot . DIRECTORY_SEPARATOR . $rootName . '-quiz-preloaded';
+        mkdir($preloadedQuizPath, 0700, true);
+        $preloadedQuizBranding = $preloadedQuizPath . DIRECTORY_SEPARATOR . 'branding.php';
+        $preloadedQuizContent = $preloadedQuizPath . DIRECTORY_SEPARATOR . 'content';
+        writeBranding($preloadedQuizBranding, $examplePath, 'quiz');
+        createContentFixtures($preloadedQuizContent);
+        [$process, $pipes, $port] = startServer(
+            $root,
+            $documentRoot,
+            $router,
+            $preloadedQuizBranding,
+            $preloadedQuizContent
+        );
+        try {
+            assertSameValue(200, requestStatus($port, '/'), $rootName . ' preloaded quiz homepage');
+            assertSameValue(404, requestStatus($port, '/lesson.md'), $rootName . ' preloaded quiz markdown denial');
+            assertSameValue(404, requestStatus($port, '/package.skill'), $rootName . ' preloaded quiz skill denial');
+            assertSameValue(404, requestStatus($port, '/notes.txt'), $rootName . ' preloaded quiz ordinary file denial');
+            assertSameValue(404, requestStatus($port, '/course'), $rootName . ' preloaded quiz folder denial');
+            assertSameValue(404, requestStatus($port, '/course/chapter.md'), $rootName . ' preloaded quiz nested markdown denial');
+            assertSameValue(true, is_file($preloadedQuizContent . DIRECTORY_SEPARATOR . 'lesson.md'), $rootName . ' preloaded fixture remains present');
+        } finally {
+            proc_terminate($process);
+            foreach ($pipes as $pipe) {
+                fclose($pipe);
+            }
+            proc_close($process);
+        }
     }
 
     $missingContentPath = $temporaryRoot . DIRECTORY_SEPARATOR . 'missing-library-content';
