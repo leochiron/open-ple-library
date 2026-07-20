@@ -1,5 +1,7 @@
 # Spécification — Mode « Quiz uniquement »
 
+> **Document obsolète.** Cette proposition est conservée pour historique. La spec produit de référence est désormais `SPEC_MODE_QUIZ.md` et l’exécution du premier incrément est décrite dans `SPEC_EXECUTION_LOT_1A.md`.
+
 Statut : proposition à valider
 Version : 0.1
 Date : 20 juillet 2026
