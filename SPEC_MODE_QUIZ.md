@@ -361,6 +361,26 @@ Le terme recommandé dans l’interface et la documentation est **supervision de
 
 Chaque événement est donc un indice à arbitrer. Le statut `invalid` ne doit pas annuler automatiquement une note sans décision humaine.
 
+### Cas spécifique : outils IA déclenchés depuis une sélection
+
+Les outils d’écriture d’Apple Intelligence, les extensions de navigateur et certains assistants IA peuvent être ouverts après sélection d’un texte, sans copie explicite et sans changement d’onglet. Une page web ne reçoit aucun événement standard indiquant qu’un outil IA a été ouvert ou utilisé.
+
+Dans la version Google Forms, la contrainte est plus forte : le formulaire est chargé dans une iframe cross-origin. La page parente ne peut observer ni la sélection, ni le menu contextuel, ni le presse-papiers, ni les modifications de saisie à l’intérieur du formulaire.
+
+La fonctionnalité à prévoir est donc une collecte de **signaux d’assistance externe**, et non un détecteur d’IA :
+
+- événements de copie, coupe et collage réellement reçus par la page ;
+- sélection et ouverture d’un menu contextuel comme contexte faible dans un futur questionnaire intégré à l’application et servi depuis la même origine ;
+- remplacement important et rapide d’un texte comme heuristique non attributive ;
+- corrélation avec perte de focus, page cachée, sortie du plein écran ou heartbeat absent ;
+- état `telemetry_unavailable` dérivé côté serveur après un délai configurable, sans l’assimiler automatiquement à une fraude ni l’utiliser seul pour invalider une tentative.
+
+Ces signaux ne doivent jamais contenir le texte sélectionné ou le contenu du presse-papiers. Ils sont dédupliqués, limités en fréquence, présentés avec leur niveau de fiabilité et soumis à arbitrage humain. Les libellés visibles restent factuels et n’emploient jamais « IA détectée ».
+
+Pour une prévention plus forte, le cahier des charges distingue un troisième niveau hors application web : appareils administrés par MDM, navigateur avec liste blanche d’extensions, mode kiosque ou navigateur d’examen dédié. Même ce dispositif ne permet pas de détecter un second appareil.
+
+L’étude détaillée, la matrice d’observabilité et les critères d’acceptation figurent dans `RESEARCH_AI_INTEGRITY_SIGNALS.md`.
+
 ## 12. Sécurité prioritaire
 
 ### Bloquants avant pilote réel
