@@ -179,7 +179,7 @@ sitemap is no longer shipped.
 5. **Set file permissions:**
    ```bash
    chmod 755 content/           # Directory traversable/readable by web server
-   chmod 750 storage/           # Directory traversable/writable by its web-server group
+   chmod 750 storage/           # Use when the web-server user owns the directory
    ```
 
    `storage/` is a directory, so it needs execute permission for traversal and
