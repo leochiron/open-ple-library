@@ -9,6 +9,8 @@ $rootRules = (string)file_get_contents($root . '/.htaccess');
 $publicRules = (string)file_get_contents($root . '/public/.htaccess');
 $contentRulesPath = $root . '/content/.htaccess';
 $contentRules = (string)file_get_contents($contentRulesPath);
+$llmsRoot = (string)file_get_contents($root . '/llms.txt');
+$llmsPublic = (string)file_get_contents($root . '/public/llms.txt');
 $contentRulesTemplate = (string)file_get_contents($root . '/app/Config/content.htaccess');
 $debugEndpoint = (string)file_get_contents($root . '/public/debug.php');
 $robotsTemplate = (string)file_get_contents($root . '/robots.txt');
@@ -37,6 +39,11 @@ $publicSeoPosition = strpos($publicRules, 'RewriteRule ^(robots\.txt|sitemap\.xm
 assertSameValue(true, $publicSeoPosition !== false, 'Public rules must route SEO files through PHP');
 assertSameValue(true, $publicSeoPosition < $publicBypassPosition, 'Public SEO routing must precede the real-file bypass');
 assertSameValue(true, strpos($debugEndpoint, 'http_response_code(404)') !== false, 'The direct debug endpoint must return 404');
+assertSameValue($llmsRoot, $llmsPublic, 'Both supported document roots must expose the same llms.txt guidance');
+assertSameValue(true, strpos($llmsRoot, '# Cours et Exercices de Léo Chiron') === 0, 'LLM guidance must start with the required H1');
+assertSameValue(true, strpos($llmsRoot, 'ne peuvent pas être republiés ailleurs') !== false, 'LLM guidance must state the no-republication condition');
+assertSameValue(true, strpos($rootRules, 'RewriteRule ^llm\\.txt$ /llms.txt [R=301,L,NC]') !== false, 'Root rules must redirect the requested singular LLM.txt alias');
+assertSameValue(true, strpos($publicRules, 'RewriteRule ^llm\\.txt$ /llms.txt [R=301,L,NC]') !== false, 'Public rules must redirect the requested singular LLM.txt alias');
 
 assertSameValue(true, is_readable($contentRulesPath), 'PHP must retain filesystem read access to the content protection file');
 assertSameValue($contentRulesTemplate, $contentRules, 'Deployed content rules must match the canonical sync-safe template');
