@@ -33,6 +33,12 @@ foreach ($cases as $mode => $routes) {
     }
     assertSameValue('public_resource', $router->classify('/assets/css/main.css'), $mode . ' assets remain public');
     assertSameValue('public_resource', $router->classify('/robots.txt'), $mode . ' SEO remains public');
+    assertSameValue('public_resource', $router->classify('/favicon.ico?cache=1'), $mode . ' favicon query remains public');
+    assertSameValue('public_resource', $router->classify('/index.php/sitemap.xml?cache=1'), $mode . ' index SEO query remains public');
+    $fallback = $mode === 'quiz' ? 'unavailable' : 'library';
+    assertSameValue($fallback, $router->classify('/nested/favicon.ico'), $mode . ' nested favicon must not match');
+    assertSameValue($fallback, $router->classify('/nested/robots.txt'), $mode . ' nested robots must not match');
+    assertSameValue($fallback, $router->classify('/nested/sitemap.xml'), $mode . ' nested sitemap must not match');
 }
 
 $stopped = new ApplicationRouter(ApplicationProfile::fromBranding([

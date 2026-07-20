@@ -112,6 +112,24 @@ function writeBranding(string $path, string $examplePath, string $mode, bool $qu
     file_put_contents($path, $source);
 }
 
+function writeLegacyBranding(string $path, string $examplePath): void
+{
+    $source = "<?php\n"
+        . '$branding = require ' . var_export($examplePath, true) . ";\n"
+        . "unset(\$branding['app_mode'], \$branding['quiz']);\n"
+        . "return \$branding;\n";
+    file_put_contents($path, $source);
+}
+
+function createContentFixtures(string $contentPath): void
+{
+    mkdir($contentPath . DIRECTORY_SEPARATOR . 'course', 0700, true);
+    file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'lesson.md', "# Fixture lesson\n");
+    file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'package.skill', "fixture skill\n");
+    file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'notes.txt', "fixture text\n");
+    file_put_contents($contentPath . DIRECTORY_SEPARATOR . 'course' . DIRECTORY_SEPARATOR . 'chapter.md', "# Chapter\n");
+}
+
 try {
     $examplePath = $root . '/app/Config/branding.example.php';
     $documentRoots = [
@@ -126,24 +144,22 @@ try {
             $brandingPath = $casePath . DIRECTORY_SEPARATOR . 'branding.php';
             $contentPath = $casePath . DIRECTORY_SEPARATOR . 'content';
             writeBranding($brandingPath, $examplePath, $mode);
+            if ($mode !== 'quiz') {
+                createContentFixtures($contentPath);
+            }
 
             [$process, $pipes, $port] = startServer($root, $documentRoot, $router, $brandingPath, $contentPath);
             try {
                 $expected = [
-                    'library' => ['/' => 200, '/quiz' => 404, '/quiz-admin' => 404, '/sync' => 'available'],
-                    'quiz' => ['/' => 200, '/quiz' => 200, '/quiz-admin' => 'available', '/sync' => 404],
-                    'hybrid' => ['/' => 200, '/quiz' => 200, '/quiz-admin' => 'available', '/sync' => 'available'],
+                    'library' => ['/' => 200, '/quiz' => 404, '/quiz-admin' => 404, '/sync' => 503],
+                    'quiz' => ['/' => 200, '/quiz' => 200, '/quiz-admin' => 503, '/sync' => 404],
+                    'hybrid' => ['/' => 200, '/quiz' => 200, '/quiz-admin' => 503, '/sync' => 503],
                 ][$mode];
                 foreach ($expected as $path => $status) {
                     $actual = requestStatus($port, $path);
                     $indexActual = requestStatus($port, '/index.php' . ($path === '/' ? '' : $path));
-                    if ($status === 'available') {
-                        assertSameValue(false, $actual === 404, $rootName . ' ' . $mode . ' ' . $path . ' must reach sync');
-                        assertSameValue(false, $indexActual === 404, $rootName . ' ' . $mode . ' index variant ' . $path . ' must reach sync');
-                    } else {
-                        assertSameValue($status, $actual, $rootName . ' ' . $mode . ' ' . $path);
-                        assertSameValue($status, $indexActual, $rootName . ' ' . $mode . ' index variant ' . $path);
-                    }
+                    assertSameValue($status, $actual, $rootName . ' ' . $mode . ' ' . $path);
+                    assertSameValue($status, $indexActual, $rootName . ' ' . $mode . ' index variant ' . $path);
                 }
                 assertSameValue(404, requestStatus($port, '/debug'), $rootName . ' debug route');
                 assertSameValue(404, requestStatus($port, '/debug.php'), $rootName . ' debug file');
@@ -152,13 +168,27 @@ try {
                 }
                 $assetPath = $rootName === 'public' ? '/assets/css/main.css' : '/public/assets/css/main.css';
                 assertSameValue(200, requestStatus($port, $assetPath), $rootName . ' static assets remain available');
+                foreach (['/favicon.ico', '/robots.txt', '/sitemap.xml'] as $publicPath) {
+                    assertSameValue(200, requestStatus($port, $publicPath . '?cache=1'), $rootName . ' exact public path with query ' . $publicPath);
+                    assertSameValue(200, requestStatus($port, '/index.php' . $publicPath . '?cache=1'), $rootName . ' exact index public path ' . $publicPath);
+                    assertSameValue(404, requestStatus($port, '/nested' . $publicPath), $rootName . ' nested public lookalike ' . $publicPath);
+                }
                 if ($mode === 'quiz') {
-                    assertSameValue(404, requestStatus($port, '/course/file.md'), $rootName . ' quiz content route');
+                    assertSameValue(404, requestStatus($port, '/lesson.md'), $rootName . ' quiz markdown route');
+                    assertSameValue(404, requestStatus($port, '/package.skill'), $rootName . ' quiz skill route');
+                    assertSameValue(404, requestStatus($port, '/notes.txt'), $rootName . ' quiz ordinary file route');
                     assertSameValue(false, is_dir($contentPath), $rootName . ' quiz request must not create content');
                     $joinBody = requestBody($port, '/');
                     assertSameValue(true, strpos($joinBody, 'href="/quiz-admin"') !== false, $rootName . ' quiz homepage exposes the configured admin link');
                 } else {
-                    assertSameValue(true, is_dir($contentPath), $rootName . ' library request initializes content');
+                    assertSameValue(200, requestStatus($port, '/lesson.md'), $rootName . ' raw markdown fixture');
+                    assertSameValue(200, requestStatus($port, '/package.skill'), $rootName . ' raw skill fixture');
+                    assertSameValue(200, requestStatus($port, '/notes.txt'), $rootName . ' ordinary file fixture');
+                    assertSameValue(200, requestStatus($port, '/course'), $rootName . ' folder navigation fixture');
+                    assertSameValue(200, requestStatus($port, '/course/chapter.md'), $rootName . ' nested raw markdown fixture');
+                    assertSameValue("# Fixture lesson\n", requestBody($port, '/lesson.md'), $rootName . ' markdown is served raw');
+                    assertSameValue("fixture skill\n", requestBody($port, '/package.skill'), $rootName . ' skill fixture body');
+                    assertSameValue(true, strpos(requestBody($port, '/notes.txt'), 'notes.txt') !== false, $rootName . ' ordinary file uses library rendering');
                 }
             } finally {
                 proc_terminate($process);
@@ -168,6 +198,49 @@ try {
                 proc_close($process);
             }
         }
+
+        $legacyPath = $temporaryRoot . DIRECTORY_SEPARATOR . $rootName . '-legacy';
+        mkdir($legacyPath, 0700, true);
+        $legacyBranding = $legacyPath . DIRECTORY_SEPARATOR . 'branding.php';
+        $legacyContent = $legacyPath . DIRECTORY_SEPARATOR . 'content';
+        writeLegacyBranding($legacyBranding, $examplePath);
+        createContentFixtures($legacyContent);
+        [$process, $pipes, $port] = startServer($root, $documentRoot, $router, $legacyBranding, $legacyContent);
+        try {
+            assertSameValue(200, requestStatus($port, '/'), $rootName . ' legacy homepage');
+            assertSameValue(200, requestStatus($port, '/quiz'), $rootName . ' legacy quiz');
+            assertSameValue(503, requestStatus($port, '/sync'), $rootName . ' legacy sync reaches disabled Drive controller');
+            assertSameValue(200, requestStatus($port, '/course'), $rootName . ' legacy folder navigation');
+            assertSameValue(200, requestStatus($port, '/lesson.md'), $rootName . ' legacy raw markdown');
+            assertSameValue(200, requestStatus($port, '/package.skill'), $rootName . ' legacy raw skill');
+            assertSameValue(200, requestStatus($port, '/notes.txt'), $rootName . ' legacy ordinary file');
+            assertSameValue("# Fixture lesson\n", requestBody($port, '/lesson.md'), $rootName . ' legacy markdown body');
+            assertSameValue("fixture skill\n", requestBody($port, '/package.skill'), $rootName . ' legacy skill body');
+        } finally {
+            proc_terminate($process);
+            foreach ($pipes as $pipe) {
+                fclose($pipe);
+            }
+            proc_close($process);
+        }
+    }
+
+    $missingContentPath = $temporaryRoot . DIRECTORY_SEPARATOR . 'missing-library-content';
+    mkdir($missingContentPath, 0700, true);
+    $missingBranding = $missingContentPath . DIRECTORY_SEPARATOR . 'branding.php';
+    $missingContent = $missingContentPath . DIRECTORY_SEPARATOR . 'content';
+    writeBranding($missingBranding, $examplePath, 'library');
+    [$process, $pipes, $port] = startServer($root, $root . '/public', $root . '/public/index.php', $missingBranding, $missingContent);
+    try {
+        assertSameValue(false, is_dir($missingContent), 'Missing library content starts absent');
+        assertSameValue(200, requestStatus($port, '/'), 'Library starts with missing content');
+        assertSameValue(true, is_dir($missingContent), 'Library initializes missing content');
+    } finally {
+        proc_terminate($process);
+        foreach ($pipes as $pipe) {
+            fclose($pipe);
+        }
+        proc_close($process);
     }
 
     $hiddenLinkPath = $temporaryRoot . DIRECTORY_SEPARATOR . 'hidden-link';

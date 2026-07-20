@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
-// Serve favicon early when docroot is repository root and no static mapping exists.
 $reqUri = $_SERVER['REQUEST_URI'] ?? '';
-if (strpos($reqUri, 'favicon.ico') !== false) {
+$earlyPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
+$earlyPath = preg_replace('#^/index\.php(?=/|$)#', '', $earlyPath) ?: '/';
+
+// Serve the exact favicon path when docroot is the repository root.
+if ($earlyPath === '/favicon.ico') {
 	$favicon = base64_decode('AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAGAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAAAAA==');
 	header('Content-Type: image/x-icon');
 	header('Content-Length: ' . strlen($favicon));
@@ -13,10 +16,7 @@ if (strpos($reqUri, 'favicon.ico') !== false) {
 }
 
 // Keep SEO files public when requests hit the repository root shim.
-$requestPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
-$normalizedRequestPath = preg_replace('#^/index\.php#', '', $requestPath) ?: '/';
-$seoPath = '/' . ltrim($normalizedRequestPath, '/');
-if (preg_match('#/robots\.txt$#', $seoPath) === 1) {
+if ($earlyPath === '/robots.txt') {
 	$robotsPath = __DIR__ . '/robots.txt';
 	if (is_file($robotsPath)) {
 		header('Content-Type: text/plain; charset=utf-8');
@@ -24,7 +24,7 @@ if (preg_match('#/robots\.txt$#', $seoPath) === 1) {
 		exit;
 	}
 }
-if (preg_match('#/sitemap\.xml$#', $seoPath) === 1) {
+if ($earlyPath === '/sitemap.xml') {
 	$sitemapPath = __DIR__ . '/public/sitemap.xml';
 	if (is_file($sitemapPath)) {
 		header('Content-Type: application/xml; charset=utf-8');

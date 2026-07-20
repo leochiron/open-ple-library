@@ -16,9 +16,12 @@ if (is_file($vendorAutoload)) {
     require $vendorAutoload;
 }
 
-// Serve favicon to avoid 404 in environments without static file mapping.
 $reqUri = $_SERVER['REQUEST_URI'] ?? '';
-if (strpos($reqUri, 'favicon.ico') !== false) {
+$earlyPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
+$earlyPath = preg_replace('#^/index\.php(?=/|$)#', '', $earlyPath) ?: '/';
+
+// Serve the exact favicon path in environments without static file mapping.
+if ($earlyPath === '/favicon.ico') {
     $favicon = base64_decode('AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAGAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAAAAA==');
     header('Content-Type: image/x-icon');
     header('Content-Length: ' . strlen($favicon));
@@ -27,16 +30,12 @@ if (strpos($reqUri, 'favicon.ico') !== false) {
 }
 
 // Keep SEO files public even when password protection is enabled.
-$requestPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
-$normalizedRequestPath = preg_replace('#^/index\.php#', '', $requestPath) ?: '/';
-$seoPath = '/' . ltrim($normalizedRequestPath, '/');
-
-if (preg_match('#/robots\.txt$#', $seoPath) === 1) {
+if ($earlyPath === '/robots.txt') {
     serveRobotsTxt();
     exit;
 }
 
-if (preg_match('#/sitemap\.xml$#', $seoPath) === 1) {
+if ($earlyPath === '/sitemap.xml') {
     serveSitemapXml();
     exit;
 }

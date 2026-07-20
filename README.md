@@ -22,7 +22,7 @@ A lightweight, public, read-only PHP interface for managing pedagogical librarie
 ```
 ├── public/                      # Web root (point your hosting document root here)
 │   ├── index.php               # Front controller and router
-│   ├── debug.php               # Debugging page for path resolution
+│   ├── debug.php               # Defensive 404 endpoint (diagnostics are not public)
 │   └── assets/
 │       ├── css/
 │       │   ├── main.css        # Compiled stylesheet
@@ -332,7 +332,7 @@ Supported out-of-the-box:
 - **Check:** Does the file exist in `/content`?
 - **Check permissions:** Ensure `/content` is readable by web server (755)
 - **Check naming:** Avoid leading/trailing spaces in filenames
-- **Debug:** Visit `/debug?path=FOLDERNAME` to see path resolution details
+- **Logs:** Inspect the server-side PHP error log; `/debug` is intentionally disabled and returns 404
 
 ### Missing branding
 - **Solution:** Copy `branding.example.php` to `branding.php` and edit it
@@ -409,7 +409,27 @@ Users must enter a password on first visit. Cookie expires after 7 days.
 | `/{path}+download` | GET | Download file or folder as ZIP |
 | `/{path}+open` | GET | Force inline preview (no download dialog) |
 | `/sync` | GET/POST | Google Drive sync (if enabled) |
-| `/debug` | GET | Path resolution debugging tool |
+
+## Tests
+
+The standalone test suite covers profile normalization, the complete route
+matrix, legacy configuration, real content fixtures and both supported document
+roots using PHP's built-in HTTP server:
+
+```bash
+php tests/ApplicationProfileTest.php
+php tests/ApplicationRouterTest.php
+php tests/RouteIntegrationTest.php
+php tests/WebServerRulesTest.php
+```
+
+PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
+therefore verifies the presence and ordering of every sensitive Apache rule when
+Apache is unavailable. If an Apache binary is detected, the test requires two
+real test deployments and will not silently fall back to static checks. Provide
+their base URLs with `PLE_APACHE_PUBLIC_URL` and
+`PLE_APACHE_REPOSITORY_URL`; the test then verifies both document roots and the
+direct-access denials against Apache itself.
 
 ## License
 
