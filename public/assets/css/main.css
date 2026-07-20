@@ -1,25 +1,11 @@
-:root {
-  --primary: #F5B400;
-  --secondary: #E43C78;
-  --tertiary: #5CB88A;
-  --structure: #3B1C4A;
-  --text: #1A1A1A;
-  --background: #FFFFFF;
-  --shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
-  --radius: 12px;
-  --spacing: 12px;
-  --font-body: "Inter", system-ui, -apple-system, sans-serif;
-  --font-heading: "Poppins", "Inter", sans-serif;
-  --font-ui: "Nunito", "Inter", sans-serif;
-}
-
+/* CSS Variables are now injected dynamically from branding.php in layout.php */
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: var(--font-body);
+  font-family: var(--font-body, "Inter", system-ui, -apple-system, sans-serif);
   color: var(--text);
   background: var(--background);
   min-height: 100vh;
@@ -40,6 +26,7 @@ a:focus-visible {
   box-shadow: var(--shadow);
   z-index: 10;
   padding: 24px 16px;
+  position: relative;
 }
 
 .brand {
@@ -49,10 +36,14 @@ a:focus-visible {
 }
 
 .brand-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
   width: 100%;
   max-width: 600px;
   text-decoration: none;
+  flex-wrap: wrap;
 }
 .brand-link:hover {
   text-decoration: none;
@@ -63,8 +54,22 @@ a:focus-visible {
   height: auto;
   width: 100%;
   max-width: 600px;
-  -o-object-fit: contain;
-     object-fit: contain;
+  object-fit: contain;
+}
+
+.brand-link--logo_text .logo {
+  width: auto;
+  max-width: min(70px, 45vw);
+}
+
+.brand-text {
+  font-family: var(--font-heading, "Poppins", "Inter", sans-serif);
+  font-weight: 600;
+  color: var(--structure);
+  line-height: 1.2;
+  font-size: clamp(1.25rem, 2.4vw, 2rem);
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .language-switcher {
@@ -74,7 +79,7 @@ a:focus-visible {
 }
 
 .language-switcher select {
-  font-family: var(--font-ui);
+  font-family: var(--font-ui, "Nunito", "Inter", sans-serif);
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid rgba(0, 0, 0, 0.08);
@@ -127,7 +132,7 @@ a:focus-visible {
 
 .card-header h1 {
   margin: 0 0 4px;
-  font-family: var(--font-heading);
+  font-family: var(--font-heading, "Poppins", "Inter", sans-serif);
   font-weight: 600;
 }
 
@@ -166,7 +171,7 @@ a:focus-visible {
   border-radius: 20px;
   font-size: 20px;
   margin-right: 6px;
-  font-family: var(--font-ui);
+  font-family: var(--font-ui, "Nunito", "Inter", sans-serif);
 }
 
 .pill-dir {
@@ -194,7 +199,7 @@ a:focus-visible {
   border-radius: 10px;
   border: none;
   cursor: pointer;
-  font-family: var(--font-ui);
+  font-family: var(--font-ui, "Nunito", "Inter", sans-serif);
   font-weight: 600;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
   text-decoration: none;
@@ -255,20 +260,62 @@ a:focus-visible {
   font-size: 14px;
 }
 
-.app-footer p {
-  margin: 8px 0;
+.cookie-consent-banner {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 1200;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 -12px 42px rgba(0, 0, 0, 0.12);
+  padding: 18px 16px;
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
-.footer-github a {
-  color: rgba(0, 0, 0, 0.55);
-  text-decoration: none;
-  transition: color 0.2s;
+.cookie-consent-banner__content {
+  display: grid;
+  gap: 12px;
+  width: min(1200px, calc(100% - 32px));
+  max-width: 1140px;
+  align-items: center;
 }
 
-.footer-github a:hover,
-.footer-github a:focus-visible {
-  color: var(--structure);
-  text-decoration: underline;
+.cookie-consent-banner__message {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.cookie-consent-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+.cookie-consent-banner button.btn {
+  min-width: 110px;
+}
+
+.cookie-consent-banner--hidden {
+  display: none !important;
+}
+
+@media (max-width: 720px) {
+  .cookie-consent-banner__content {
+    gap: 10px;
+  }
+
+  .cookie-consent-banner__actions {
+    justify-content: stretch;
+  }
+
+  .cookie-consent-banner button.btn {
+    width: 100%;
+  }
 }
 
 .sr-only {
@@ -300,7 +347,7 @@ a:focus-visible {
   font-size: 18px;
   font-weight: 600;
   transition: background-color 0.2s ease;
-  font-family: var(--font-ui);
+  font-family: var(--font-ui, "Nunito", "Inter", sans-serif);
 }
 .view-btn:first-child {
   border-radius: 7px 0 0 7px;
@@ -420,54 +467,19 @@ a:focus-visible {
     display: none;
   }
 }
-
-/* Preview fullscreen mode */
-.preview {
-  position: relative;
+@media (max-width: 780px) {
+  .logo {
+    max-width: 100%;
+  }
+  .brand-link--logo_text {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .brand-link--logo_text .logo {
+    max-width: 220px;
+    width: 100%;
+  }
 }
-
-.preview-toolbar {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  z-index: 100;
-  background: rgba(255, 255, 255, 0.95);
-  padding: 4px;
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-#fullscreen-btn {
-  padding: 8px 12px;
-  font-size: 18px;
-}
-
-.preview.fullscreen {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 999;
-  background: #fff;
-  border-radius: 0;
-  overflow: hidden;
-}
-
-.preview.fullscreen iframe,
-.preview.fullscreen video,
-.preview.fullscreen audio {
-  width: 100%;
-  height: 100%;
-}
-
-.preview.fullscreen .preview-toolbar {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  z-index: 1000;
-}
-
 @media (max-width: 520px) {
   .app-header {
     padding: 20px 12px;
@@ -485,15 +497,75 @@ a:focus-visible {
   }
 }
 
-/* Screen reader only - hidden visually but accessible to search engines and assistive technology */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
+/* ------------------------------------------------------------------
+   Folder intro card ("encart") — content of a folder's _intro.md /
+   _intro.html, shown above the file listing to guide students.
+   ------------------------------------------------------------------ */
+.folder-intro {
+  margin-bottom: 16px;
+  border-left: 4px solid var(--secondary, var(--structure));
+  padding: 20px 24px;
+  line-height: 1.6;
+}
+.folder-intro > *:first-child {
+  margin-top: 0;
+}
+.folder-intro > *:last-child {
+  margin-bottom: 0;
+}
+.folder-intro h1,
+.folder-intro h2,
+.folder-intro h3 {
+  font-family: var(--font-heading, "Poppins", "Inter", sans-serif);
+  color: var(--structure);
+  margin: 18px 0 8px;
+  line-height: 1.25;
+}
+.folder-intro h1 { font-size: 1.5rem; }
+.folder-intro h2 { font-size: 1.25rem; }
+.folder-intro h3 { font-size: 1.1rem; }
+.folder-intro p { margin: 10px 0; }
+.folder-intro ul,
+.folder-intro ol { margin: 10px 0 10px 22px; }
+.folder-intro li { margin: 4px 0; }
+.folder-intro a {
+  color: var(--structure);
+  text-decoration: underline;
+}
+.folder-intro blockquote {
+  margin: 12px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--secondary, #ccc);
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text);
+}
+.folder-intro code {
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 0.9em;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.folder-intro pre.md-code {
+  background: #1e2430;
+  color: #e6edf3;
+  padding: 14px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+.folder-intro pre.md-code code {
+  background: none;
   padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
+  color: inherit;
+}
+.folder-intro hr {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  margin: 16px 0;
+}
+.folder-intro img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
 }

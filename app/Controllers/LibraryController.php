@@ -48,9 +48,17 @@ class LibraryController
                     : $this->fileSystem->getHumanFileSize($entry['size']);
                 return $entry;
             }, $this->fileSystem->listDirectory($absolutePath));
+
+            // Folder intro card: hide the special file from the listing and
+            // render its content above the file list (see renderFolderIntro).
+            $entries = array_values(array_filter($entries, static function (array $entry): bool {
+                return !in_array(strtolower($entry['name']), ['_intro.html', '_intro.md'], true);
+            }));
+
             render('library/folder', [
                 'relativePath' => $relativePath,
                 'entries' => $entries,
+                'introHtml' => $this->renderFolderIntro($absolutePath),
                 'breadcrumbs' => $this->buildBreadcrumbs($relativePath),
                 'parentPath' => $this->getParentPath($relativePath),
                 'title' => $this->i18n->t('folder.heading'),
@@ -86,6 +94,40 @@ class LibraryController
             'modified' => (int) filemtime($absolutePath),
             'breadcrumbs' => $this->buildBreadcrumbs($relativePath),
         ], $this->i18n, $this->config);
+    }
+
+    /**
+     * Folder intro card. If the directory contains an intro file, returns its
+     * HTML to be displayed above the file listing — empty string otherwise.
+     *   _intro.html : trusted HTML fragment, injected as-is (full design control)
+     *   _intro.md   : Markdown, rendered to safe HTML
+     * _intro.html wins when both are present.
+     */
+    private function renderFolderIntro(string $absoluteDir): string
+    {
+        $htmlFile = $absoluteDir . DIRECTORY_SEPARATOR . '_intro.html';
+        if (is_file($htmlFile)) {
+            $raw = (string)file_get_contents($htmlFile);
+            return $this->ensureUtf8($raw);
+        }
+
+        $mdFile = $absoluteDir . DIRECTORY_SEPARATOR . '_intro.md';
+        if (is_file($mdFile)) {
+            $raw = $this->ensureUtf8((string)file_get_contents($mdFile));
+            return renderMarkdown($raw);
+        }
+
+        return '';
+    }
+
+    /** Best-effort conversion to UTF-8 (intro files may be saved as Windows-1252). */
+    private function ensureUtf8(string $text): string
+    {
+        $text = (string)preg_replace('/^\xEF\xBB\xBF/', '', $text); // strip BOM
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $text = mb_convert_encoding($text, 'UTF-8', 'Windows-1252');
+        }
+        return $text;
     }
 
     /**

@@ -26,8 +26,25 @@ if (strpos($reqUri, 'favicon.ico') !== false) {
     exit;
 }
 
+// Keep SEO files public even when password protection is enabled.
+$requestPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
+$normalizedRequestPath = preg_replace('#^/index\.php#', '', $requestPath) ?: '/';
+$seoPath = '/' . ltrim($normalizedRequestPath, '/');
+
+if (preg_match('#/robots\.txt$#', $seoPath) === 1) {
+    serveRobotsTxt();
+    exit;
+}
+
+if (preg_match('#/sitemap\.xml$#', $seoPath) === 1) {
+    serveSitemapXml();
+    exit;
+}
+
 use App\Controllers\ErrorController;
 use App\Controllers\LibraryController;
+use App\Controllers\QuizAdminController;
+use App\Controllers\QuizController;
 use App\Controllers\SyncController;
 use App\Services\AuthService;
 use App\Services\FileSystemService;
@@ -36,8 +53,6 @@ use App\Services\I18nService;
 use App\Services\MimeService;
 use App\Services\SecurityService;
 use App\Services\ZipService;
-use InvalidArgumentException;
-use Throwable;
 
 // Simple PSR-4–like autoloader for the App namespace
 spl_autoload_register(static function (string $class): void {
@@ -57,6 +72,7 @@ spl_autoload_register(static function (string $class): void {
 
 require __DIR__ . '/../app/Helpers/view.php';
 require __DIR__ . '/../app/Helpers/url.php';
+require __DIR__ . '/../app/Helpers/markdown.php';
 
 $config = require __DIR__ . '/../app/Config/config.php';
 $translations = require __DIR__ . '/../app/Config/i18n.php';
@@ -82,6 +98,58 @@ $i18n = new I18nService($config, $translations);
 $i18n->detectLanguage();
 $auth = new AuthService($config['branding']);
 $googleDrive = new GoogleDriveService($config);
+
+// ============================================================
+// QUIZ MODULE ROUTES (own authentication: room PIN + personal
+// code for students, dedicated password for the teacher admin —
+// independent from the optional library password)
+// ============================================================
+$quizPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$quizPath = preg_replace('#^/index\.php#', '', $quizPath) ?: '/';
+if ($quizPath === '/quiz' || strpos($quizPath, '/quiz/') === 0
+    || $quizPath === '/quiz-admin' || strpos($quizPath, '/quiz-admin/') === 0) {
+    try {
+        $quizStorage = __DIR__ . '/../storage';
+        $quizDb = new App\Services\QuizDbService($quizStorage);
+        $quizService = new App\Services\QuizService($quizDb, $config, $quizStorage);
+
+        if (strpos($quizPath, '/quiz-admin') === 0) {
+            (new QuizAdminController($quizService, $i18n, $config))
+                ->handle(substr($quizPath, strlen('/quiz-admin')));
+        } else {
+            (new QuizController($quizService, $i18n, $config))
+                ->handle(substr($quizPath, strlen('/quiz')));
+        }
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo 'Quiz module error.';
+        error_log('Quiz bootstrap error: ' . $e->getMessage() . ' | ' . $e->getFile() . ':' . $e->getLine());
+    }
+    exit;
+}
+
+// ============================================================
+// PUBLIC RAW RESOURCES (.md / .skill)
+// Served BEFORE the optional library password so external AI agents and direct
+// links always work. Mirrors the Apache .htaccess rules, and keeps behaviour
+// identical whether a file is static (served by Apache) or routed through PHP.
+//   .md    → inline UTF-8 plain text + permissive CORS
+//   .skill → forced download
+// ============================================================
+try {
+    $rawMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    $rawUri = preg_replace('#^/index\.php#', '', parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/');
+    $rawUri = ltrim((string)$rawUri, '/');
+    // Read-only methods only, and leave explicit +download / +open actions to
+    // their dedicated handling below.
+    if ($rawUri !== '' && in_array($rawMethod, ['GET', 'HEAD', 'OPTIONS'], true)
+        && !preg_match('/\+(download|open)\/?$/', $rawUri)) {
+        $rawPath = $security->validateRelativePath(rawurldecode($rawUri));
+        serveRawResource($fileSystem, $security, $rawPath); // exits when it serves a .md/.skill
+    }
+} catch (Throwable $e) {
+    // Not a serveable resource (bad path, etc.): fall through to the normal flow.
+}
 
 // Handle logout
 if (isset($_GET['logout'])) {
@@ -201,6 +269,9 @@ try {
         exit;
     }
 
+    // Note: plain .md / .skill requests are already served raw (and public)
+    // earlier in this front controller, before the auth gate.
+
     $libraryController->browse($path);
 } catch (Throwable $exception) {
     if ($exception instanceof InvalidArgumentException) {
@@ -251,6 +322,61 @@ function serveDownload(FileSystemService $fs, SecurityService $security, MimeSer
     header('Content-Length: ' . filesize($absolute));
     header('Content-Disposition: attachment; filename="' . $safeName . '"');
     readfile($absolute);
+}
+
+/**
+ * Serves resource files meant to be consumed directly (browser, curl, AI agent):
+ *   - .md         : raw UTF-8 plain text, inline, cross-origin readable
+ *   - .html/.htm  : rendered as a real HTML page (not the library wrapper)
+ *   - .skill      : forced download (attachment)
+ * Does nothing (returns) for any other extension or for a directory, so the
+ * normal library browser keeps handling them.
+ */
+function serveRawResource(FileSystemService $fs, SecurityService $security, string $relativePath): void
+{
+    $extension = strtolower(pathinfo($relativePath, PATHINFO_EXTENSION));
+    if (!in_array($extension, ['md', 'html', 'htm', 'skill'], true)) {
+        return;
+    }
+
+    $absolute = $fs->resolvePath($relativePath);
+    if (!is_file($absolute)) {
+        return; // directory or missing file: let the library handle it
+    }
+    $security->ensureInsideRoot($absolute);
+
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+    if ($extension === 'md') {
+        // Plain UTF-8 so external agents get the literal content (accents, emojis),
+        // and a permissive CORS header so a cross-origin fetch is never blocked.
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: GET, HEAD, OPTIONS');
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: public, max-age=300');
+
+        if ($method === 'OPTIONS') {
+            http_response_code(204);
+            exit;
+        }
+    } elseif ($extension === 'html' || $extension === 'htm') {
+        // Render the teacher's standalone page directly (e.g. a skill landing page),
+        // instead of showing the library's file-detail wrapper.
+        header('Content-Type: text/html; charset=utf-8');
+        header('Cache-Control: public, max-age=300');
+    } else { // skill
+        $safeName = str_replace('"', '', basename($absolute));
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="' . $safeName . '"');
+    }
+
+    header('Content-Length: ' . filesize($absolute));
+    if ($method === 'HEAD') {
+        exit;
+    }
+    readfile($absolute);
+    exit;
 }
 
 function serveInline(FileSystemService $fs, SecurityService $security, MimeService $mime, string $relativePath): void
@@ -317,4 +443,59 @@ function serveInline(FileSystemService $fs, SecurityService $security, MimeServi
     header('Cache-Control: public, max-age=3600');
     
     readfile($absolute);
+}
+
+function detectBaseUrl(): string
+{
+    $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
+    if ($forwardedProto !== '') {
+        $scheme = trim(explode(',', $forwardedProto)[0]) === 'https' ? 'https' : 'http';
+    } else {
+        $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        $scheme = $isHttps ? 'https' : 'http';
+    }
+
+    $host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost');
+    return $scheme . '://' . $host;
+}
+
+function serveRobotsTxt(): void
+{
+    header('Content-Type: text/plain; charset=utf-8');
+
+    $robotsFile = __DIR__ . '/../robots.txt';
+    $content = '';
+    if (is_file($robotsFile)) {
+        $fileContent = file_get_contents($robotsFile);
+        if ($fileContent !== false) {
+            $content = trim($fileContent);
+        }
+    }
+
+    $sitemapLine = 'Sitemap: ' . detectBaseUrl() . '/sitemap.xml';
+    if ($content === '') {
+        $content = "User-agent: *\nAllow: /\n\n" . $sitemapLine;
+    } elseif (!preg_match('/^Sitemap:/mi', $content)) {
+        $content .= "\n\n" . $sitemapLine;
+    }
+
+    echo $content . "\n";
+}
+
+function serveSitemapXml(): void
+{
+    header('Content-Type: application/xml; charset=utf-8');
+
+    $homepage = htmlspecialchars(detectBaseUrl() . '/', ENT_QUOTES | ENT_XML1, 'UTF-8');
+    $lastmod = gmdate('Y-m-d\TH:i:s\Z');
+
+    echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+    echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+    echo "  <url>\n";
+    echo "    <loc>{$homepage}</loc>\n";
+    echo "    <lastmod>{$lastmod}</lastmod>\n";
+    echo "    <changefreq>weekly</changefreq>\n";
+    echo "    <priority>1.0</priority>\n";
+    echo "  </url>\n";
+    echo "</urlset>\n";
 }

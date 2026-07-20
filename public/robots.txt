@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /storage/
+Disallow: /app/
+Disallow: /public/assets/
+
+Sitemap: https://ple-sansfrontieres.org/sitemap.xml

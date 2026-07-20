@@ -14,7 +14,13 @@ return [
     // Site identity
     'site_name' => 'My PLE Library',
     'site_logo' => '/assets/images/logo.png',  // Path to your logo file
-    'site_logo_text' => 'My PLE Library',      // Optional text to display instead of logo
+    'site_logo_text' => 'My PLE Library',      // Text displayed for text/logo_text modes
+    // Header brand rendering mode:
+    // - auto: legacy behavior (text if site_logo_text exists, otherwise logo)
+    // - logo: logo only
+    // - text: text only
+    // - logo_text: logo + text side-by-side
+    'header_brand_mode' => 'auto',
     
     // Color scheme (CSS hex values)
     // Choose colors that represent your brand and ensure good contrast for readability
@@ -72,6 +78,8 @@ return [
     'meta_description' => 'Open PLE Library — accès pédagogique en lecture seule, ressources partagées et projet participatif.',
     // Public contact email used on the login page (mailto link)
     'contact_email' => 'contact@example.org',
+    // Google Analytics Measurement ID (e.g. G-XXXXXXXXXX)
+    'ga_measurement_id' => null,
 
     // Password Protection
     // Set passwords to protect access. Leave empty array to disable authentication.
@@ -97,4 +105,27 @@ return [
     'google_drive_enabled' => false,    // Enable Google Drive integration
     'sync_password' => null,            // Strong password for /sync endpoint (REQUIRED if enabled)
     'sync_delete_existing' => true,     // Delete local content/ before sync (recommended for clean sync)
+
+    // Monitored quizzes (/quiz student room + /quiz-admin teacher dashboard)
+    // The module wraps a Google Form in a monitored page: students join with a
+    // room PIN (displayed in class) + a personal code, page exits are recorded.
+    'quiz_admin_password' => null,      // Strong password for /quiz-admin (module disabled if null/empty)
+    'quiz_hmac_secret' => null,         // Optional: secret signing attempt tokens. If null, an
+                                        // auto-generated secret is stored in storage/quiz-secret.key
+    'quiz_mail_from' => null,           // Optional: From address when emailing student codes
+                                        // (defaults to no-reply@<host>; must be a sender your
+                                        // hosting's mail() is allowed to use, e.g. quiz@yourdomain.fr)
+
+    // Optional: send the code emails through an authenticated SMTP account
+    // instead of PHP mail() (far more reliable, proper SPF/DKIM). When set,
+    // 'quiz_mail_from' above is ignored for the quiz emails.
+    // 'quiz_smtp' => [
+    //     'host'      => 'mail.yourdomain.fr',
+    //     'port'      => 465,                 // 465 = implicit TLS (secure 'ssl'); 587 = STARTTLS ('tls')
+    //     'secure'    => 'ssl',               // 'ssl' for 465, 'tls' for 587
+    //     'username'  => 'notif@yourdomain.fr',
+    //     'password'  => 'THE_MAILBOX_PASSWORD',
+    //     'from'      => 'notif@yourdomain.fr', // usually identical to username
+    //     'from_name' => 'Your course name',    // optional display name
+    // ],
 ];
