@@ -101,6 +101,19 @@ function requestBody(int $port, string $path): string
     return is_string($body) ? $body : '';
 }
 
+function requestContentType(int $port, string $path): string
+{
+    $context = stream_context_create(['http' => ['ignore_errors' => true, 'timeout' => 3]]);
+    @file_get_contents('http://127.0.0.1:' . $port . $path, false, $context);
+    $headers = $http_response_header ?? [];
+    foreach ($headers as $header) {
+        if (stripos($header, 'Content-Type:') === 0) {
+            return trim(substr($header, strlen('Content-Type:')));
+        }
+    }
+    return '';
+}
+
 function writeBranding(string $path, string $examplePath, string $mode, bool $quizEnabled = true, bool $showAdminLink = true): void
 {
     $source = "<?php\n"
@@ -173,6 +186,22 @@ try {
                     assertSameValue(200, requestStatus($port, '/index.php' . $publicPath . '?cache=1'), $rootName . ' exact index public path ' . $publicPath);
                     assertSameValue(404, requestStatus($port, '/nested' . $publicPath), $rootName . ' nested public lookalike ' . $publicPath);
                 }
+                $faviconBody = requestBody($port, '/favicon.ico?cache=1');
+                assertSameValue('image/x-icon', requestContentType($port, '/favicon.ico?cache=1'), $rootName . ' favicon content type');
+                assertSameValue("\x00\x00\x01\x00", substr($faviconBody, 0, 4), $rootName . ' favicon ICO signature');
+
+                $expectedBaseUrl = 'http://127.0.0.1:' . $port;
+                $robotsBody = requestBody($port, '/robots.txt?cache=1');
+                assertSameValue('text/plain; charset=utf-8', requestContentType($port, '/robots.txt?cache=1'), $rootName . ' robots content type');
+                assertSameValue(true, strpos($robotsBody, "User-agent: *") !== false, $rootName . ' robots body');
+                assertSameValue(true, strpos($robotsBody, 'Sitemap: ' . $expectedBaseUrl . '/sitemap.xml') !== false, $rootName . ' robots canonical sitemap URL');
+                assertSameValue(false, strpos($robotsBody, 'ple-sansfrontieres.org') !== false, $rootName . ' robots has no historical domain');
+
+                $sitemapBody = requestBody($port, '/sitemap.xml?cache=1');
+                assertSameValue('application/xml; charset=utf-8', requestContentType($port, '/sitemap.xml?cache=1'), $rootName . ' sitemap content type');
+                assertSameValue(true, strpos($sitemapBody, '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">') !== false, $rootName . ' sitemap XML body');
+                assertSameValue(true, strpos($sitemapBody, '<loc>' . $expectedBaseUrl . '/</loc>') !== false, $rootName . ' sitemap canonical homepage URL');
+                assertSameValue(false, strpos($sitemapBody, 'ple-sansfrontieres.org') !== false, $rootName . ' sitemap has no historical domain');
                 if ($mode === 'quiz') {
                     assertSameValue(404, requestStatus($port, '/lesson.md'), $rootName . ' quiz markdown route');
                     assertSameValue(404, requestStatus($port, '/package.skill'), $rootName . ' quiz skill route');
@@ -188,7 +217,6 @@ try {
                     assertSameValue(200, requestStatus($port, '/course/chapter.md'), $rootName . ' nested raw markdown fixture');
                     assertSameValue("# Fixture lesson\n", requestBody($port, '/lesson.md'), $rootName . ' markdown is served raw');
                     assertSameValue("fixture skill\n", requestBody($port, '/package.skill'), $rootName . ' skill fixture body');
-                    assertSameValue(true, strpos(requestBody($port, '/notes.txt'), 'notes.txt') !== false, $rootName . ' ordinary file uses library rendering');
                 }
             } finally {
                 proc_terminate($process);

@@ -8,18 +8,31 @@ $root = dirname(__DIR__);
 $rootRules = (string)file_get_contents($root . '/.htaccess');
 $publicRules = (string)file_get_contents($root . '/public/.htaccess');
 $debugEndpoint = (string)file_get_contents($root . '/public/debug.php');
+$robotsTemplate = (string)file_get_contents($root . '/robots.txt');
+
+assertSameValue(true, $robotsTemplate !== '', 'The canonical root robots template must not be empty');
+assertSameValue(false, strpos($robotsTemplate, 'ple-sansfrontieres.org') !== false, 'The robots template must not contain the historical domain');
+assertSameValue(false, is_file($root . '/public/robots.txt'), 'No public robots copy may bypass canonical generation');
+assertSameValue(false, is_file($root . '/sitemap.xml'), 'No root static sitemap may contain a stale domain');
+assertSameValue(false, is_file($root . '/public/sitemap.xml'), 'No public static sitemap may contain a stale domain');
 
 $denyPosition = strpos($rootRules, 'RewriteRule ^(app|storage|content|\.git)(/|$) - [F,L]');
 $rootBypassPosition = strpos($rootRules, 'RewriteCond %{REQUEST_FILENAME} -f [OR]');
 assertSameValue(true, $denyPosition !== false, 'Repository rules must deny sensitive directories');
 assertSameValue(true, $rootBypassPosition !== false, 'Repository rules must contain the real-file bypass');
 assertSameValue(true, $denyPosition < $rootBypassPosition, 'Sensitive directory denial must precede the real-file bypass');
+$rootSeoPosition = strpos($rootRules, 'RewriteRule ^(robots\.txt|sitemap\.xml)$ index.php [L]');
+assertSameValue(true, $rootSeoPosition !== false, 'Repository rules must route SEO files through PHP');
+assertSameValue(true, $rootSeoPosition < $rootBypassPosition, 'Repository SEO routing must precede the real-file bypass');
 
 $debugRewritePosition = strpos($publicRules, 'RewriteRule ^debug(?:\.php)?/?$ /index.php/debug.php [L]');
 $publicBypassPosition = strpos($publicRules, 'RewriteCond %{REQUEST_FILENAME} -f');
 assertSameValue(true, $debugRewritePosition !== false, 'Public rules must route debug aliases to the disabled endpoint');
 assertSameValue(true, $publicBypassPosition !== false, 'Public rules must contain the real-file bypass');
 assertSameValue(true, $debugRewritePosition < $publicBypassPosition, 'Debug denial must precede the real-file bypass');
+$publicSeoPosition = strpos($publicRules, 'RewriteRule ^(robots\.txt|sitemap\.xml)$ /index.php [L]');
+assertSameValue(true, $publicSeoPosition !== false, 'Public rules must route SEO files through PHP');
+assertSameValue(true, $publicSeoPosition < $publicBypassPosition, 'Public SEO routing must precede the real-file bypass');
 assertSameValue(true, strpos($debugEndpoint, 'http_response_code(404)') !== false, 'The direct debug endpoint must return 404');
 
 function apacheBinary(): ?string

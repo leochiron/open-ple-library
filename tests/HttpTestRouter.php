@@ -8,7 +8,7 @@ $candidate = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? ''), DIRECTORY_SEPARATO
 
 // Mirror a normal web server: existing assets and PHP files are served
 // directly, while application URLs are sent to the selected front controller.
-if ($path !== '/' && is_file($candidate)) {
+if ($path !== '/' && $path !== '/robots.txt' && $path !== '/sitemap.xml' && is_file($candidate)) {
     return false;
 }
 

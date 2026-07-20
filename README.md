@@ -143,6 +143,14 @@ to deny direct access to `app/`, `storage/`, `content/` and `.git/`. Detailed PH
 errors are hidden by default; set `APP_ENV=development` only in a local
 development environment.
 
+`robots.txt` and `sitemap.xml` are generated through the same PHP front
+controller for both supported document roots. Their canonical URL is derived
+from the request host and scheme, so the old hard-coded
+`ple-sansfrontieres.org` sitemap is no longer shipped. A reverse proxy must
+therefore preserve the public `Host` and HTTPS scheme. A future deployment
+setting such as `public_base_url` is preferable for proxies that cannot preserve
+those headers, but is intentionally outside the application-profile lot.
+
 ### On Shared Hosting (IONOS, OVH, O2Switch, etc.)
 
 1. **Upload project files:**

@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /storage/
+Disallow: /app/
+Disallow: /content/
+Disallow: /.git/
