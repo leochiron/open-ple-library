@@ -26,11 +26,10 @@ A lightweight, public, read-only PHP interface for managing pedagogical librarie
 │   └── assets/
 │       ├── css/
 │       │   ├── main.css        # Compiled stylesheet
-│       │   └── main.scss       # SCSS source
 │       ├── js/
 │       │   └── main.js         # Client-side interactivity
 │       └── images/
-│           └── logo.png        # Placeholder for your brand logo
+│           └── logo.png        # Your local brand logo (Git-ignored)
 │
 ├── app/                         # Application code
 │   ├── Controllers/
@@ -167,7 +166,8 @@ return [
     // Site Identity
     'site_name' => 'My PLE Library',           // Site title (in H1, SEO)
     'site_logo' => '/assets/images/logo.png',  // Path to logo image
-    'site_logo_text' => 'My PLE',              // Alt text for logo
+    'site_logo_text' => 'My PLE',              // Header text (for text/logo_text modes)
+    'header_brand_mode' => 'auto',             // auto | logo | text | logo_text
     
     // Color Scheme (CSS hex values)
     'colors' => [
@@ -228,6 +228,12 @@ return [
     'sync_delete_existing' => true,       // Clear content/ before sync
 ];
 ```
+
+Header brand display modes:
+- `auto`: legacy behavior, text if `site_logo_text` is set, otherwise logo.
+- `logo`: logo only (falls back to text if logo is missing).
+- `text`: text only.
+- `logo_text`: logo + text on one row (stacks on mobile).
 
 ### Configuration Files Explained
 
@@ -334,7 +340,7 @@ Supported out-of-the-box:
 - **Language:** PHP 8.1+
 - **No dependencies:** Pure PHP, no Composer required
 - **Frontend:** Vanilla JavaScript (no frameworks)
-- **Styling:** CSS with optional SCSS source
+- **Styling:** CSS
 - **Architecture:** Single front controller + MVC-style routing
 
 ## Optional Features

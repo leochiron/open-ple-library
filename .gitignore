@@ -12,6 +12,7 @@ storage/google-credentials.json
 /content/*
 !/content/.gitkeep
 /public/assets/css/main.css.map
+/public/assets/images/logo.png
 /app/Config/branding.php
 # Google API credentials (explicit)
 /storage/client_secret_644663763502-ghe7ku1e72rl3i29dfbtemjgtj7uarug.apps.googleusercontent.com.json

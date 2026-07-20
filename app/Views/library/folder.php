@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 /** @var array<int, array{name:string,is_dir:bool,size:int,modified:int}> $entries */
 /** @var string $relativePath */
+/** @var string $introHtml */
 /** @var array<int, array{label:string,path:string|null}> $breadcrumbs */
 /** @var string|null $parentPath */
 /** @var App\Services\I18nService $i18n */
+
+$introHtml = $introHtml ?? '';
 ?>
 <section class="toolbar">
     <div class="breadcrumbs" aria-label="breadcrumbs">
@@ -29,6 +32,12 @@ declare(strict_types=1);
         <?php endif; ?>
     </div>
 </section>
+
+<?php if ($introHtml !== ''): ?>
+    <section class="card folder-intro" aria-label="<?php echo htmlspecialchars($i18n->t('folder.intro'), ENT_QUOTES, 'UTF-8'); ?>">
+        <?php echo $introHtml; /* trusted teacher content: _intro.html fragment as-is, or rendered _intro.md */ ?>
+    </section>
+<?php endif; ?>
 
 <section class="card">
     <header class="card-header">

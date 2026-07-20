@@ -22,10 +22,20 @@ Ce guide explique comment personnaliser l'apparence visuelle de votre site PLE L
 ```php
 'site_name' => 'Mon Portail PLE',
 'site_logo' => '/assets/images/logo.png',
+'site_logo_text' => 'Mon Portail PLE',
+'header_brand_mode' => 'auto', // auto | logo | text | logo_text
 ```
 
 - **`site_name`** : Nom affiché dans le titre de la page et le footer
 - **`site_logo`** : Chemin vers votre logo (relatif au dossier `/public`)
+- **`site_logo_text`** : Texte affiché dans l'en-tête (modes `text` et `logo_text`)
+- **`header_brand_mode`** : Mode d'affichage du branding de l'en-tête
+
+Modes disponibles pour `header_brand_mode` :
+- `auto` : comportement historique (texte si `site_logo_text` est défini, sinon logo)
+- `logo` : logo seul (avec fallback texte si le logo est introuvable)
+- `text` : texte seul
+- `logo_text` : logo + texte sur une ligne (puis empilé sur mobile)
 
 **💡 Conseil :** Placez votre logo dans `/public/assets/images/` et assurez-vous qu'il a un fond transparent pour une meilleure intégration.
 
@@ -137,6 +147,7 @@ Personnalisez le texte du pied de page avec :
 return [
     'site_name' => 'PLE Minimaliste',
     'site_logo' => '/assets/images/logo.png',
+    'header_brand_mode' => 'logo',
     'colors' => [
         'primary' => '#000000',
         'secondary' => '#666666',
@@ -166,6 +177,8 @@ return [
 return [
     'site_name' => 'PLE Vibrant',
     'site_logo' => '/assets/images/logo-vibrant.png',
+    'site_logo_text' => 'PLE Vibrant',
+    'header_brand_mode' => 'logo_text',
     'colors' => [
         'primary' => '#FF6B35',      // Orange vif
         'secondary' => '#00A8CC',    // Cyan
