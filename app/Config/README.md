@@ -45,13 +45,16 @@ n'est nécessaire.
 `public_base_url` fixe l'origine publique utilisée par `robots.txt` et le
 sitemap. Sa valeur doit contenir uniquement `http://` ou `https://`, un nom
 d'hôte ou une adresse IP, et un port facultatif. Aucun chemin, identifiant,
-query string ou fragment n'est accepté. Cette clé est recommandée en
-production.
+query string ou fragment n'est accepté. Cette clé est obligatoire en
+production pour servir `robots.txt` et `sitemap.xml`. Si elle manque ou est
+invalide, ces deux endpoints répondent 503 sans bloquer la bibliothèque ou le
+quiz.
 
-Sans URL configurée, l'application valide strictement l'en-tête `Host` et
-déduit HTTPS depuis le serveur. `X-Forwarded-Proto` est ignoré par défaut. Pour
-l'utiliser derrière un reverse proxy, activez `trust_forwarded_proto` et listez
-chaque adresse IP de proxy autorisée dans `trusted_proxy_ips`.
+Le repli sur `Host` n'existe qu'avec `APP_ENV=development` ou `APP_ENV=testing` :
+l'application valide alors strictement l'hôte et déduit HTTPS depuis le serveur.
+`X-Forwarded-Proto` est ignoré par défaut. Pour l'utiliser derrière un reverse
+proxy de développement, activez `trust_forwarded_proto` et listez chaque adresse
+IP de proxy autorisée dans `trusted_proxy_ips`.
 
 ### 1. Identité du Site
 

@@ -19,7 +19,7 @@ return [
         'show_admin_link' => true,  // Link displayed on the student join page
     ],
     // Canonical public origin used in robots.txt, sitemap.xml and generated
-    // links. Recommended in production; no path, query or credentials allowed.
+    // links. Required for SEO endpoints in production; no path, query or credentials.
     'public_base_url' => null, // e.g. 'https://courses.example.org'
     // Forwarded protocol headers are ignored unless both this switch is true
     // and REMOTE_ADDR exactly matches one of these proxy IP addresses.

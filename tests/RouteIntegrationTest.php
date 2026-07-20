@@ -43,14 +43,22 @@ function freePort(): int
 }
 
 /** @return array{0: resource, 1: array<int, resource>, 2: int} */
-function startServer(string $root, string $documentRoot, string $frontController, string $brandingPath, string $contentPath): array
+function startServer(
+    string $root,
+    string $documentRoot,
+    string $frontController,
+    string $brandingPath,
+    string $contentPath,
+    string $applicationEnvironment = 'testing'
+): array
 {
     $port = freePort();
     $command = [PHP_BINARY, '-S', '127.0.0.1:' . $port, '-t', $documentRoot, $root . '/tests/HttpTestRouter.php'];
     $pipes = [];
     $environment = getenv();
     $environment = is_array($environment) ? $environment : [];
-    $environment['APP_ENV'] = 'testing';
+    $environment['APP_ENV'] = $applicationEnvironment;
+    $environment['PLE_TEST_MODE'] = '1';
     $environment['PLE_TEST_BRANDING'] = $brandingPath;
     $environment['PLE_TEST_CONTENT_PATH'] = $contentPath;
     $environment['PLE_TEST_FRONT_CONTROLLER'] = $frontController;
@@ -267,7 +275,7 @@ try {
                     assertSameValue(true, strpos($joinBody, 'href="/quiz-admin"') !== false, $rootName . ' quiz homepage exposes the configured admin link');
                     $untrustedForwardedBody = requestBodyWithHeaders($port, '/sitemap.xml', ['X-Forwarded-Proto: https']);
                     assertSameValue(true, strpos($untrustedForwardedBody, '<loc>http://127.0.0.1:' . $port . '/</loc>') !== false, $rootName . ' ignores untrusted forwarded protocol');
-                    assertSameValue(503, requestStatusWithHeaders($port, '/', ['Host: bad_host.example']), $rootName . ' hostile Host gets neutral configuration error');
+                    assertSameValue(503, requestStatusWithHeaders($port, '/sitemap.xml', ['Host: bad_host.example']), $rootName . ' hostile Host gets neutral SEO error');
                 } else {
                     assertSameValue(200, requestStatus($port, '/lesson.md'), $rootName . ' raw markdown fixture');
                     assertSameValue(200, requestStatus($port, '/package.skill'), $rootName . ' raw skill fixture');
@@ -348,11 +356,13 @@ try {
             $documentRoot,
             $router,
             $configuredUrlBranding,
-            $configuredUrlPath . DIRECTORY_SEPARATOR . 'content'
+            $configuredUrlPath . DIRECTORY_SEPARATOR . 'content',
+            'production'
         );
         try {
             assertSameValue(true, strpos(requestBody($port, '/robots.txt'), 'Sitemap: https://canonical.example:8443/sitemap.xml') !== false, $rootName . ' configured robots URL');
             assertSameValue(true, strpos(requestBody($port, '/sitemap.xml'), '<loc>https://canonical.example:8443/</loc>') !== false, $rootName . ' configured sitemap URL');
+            assertSameValue(200, requestStatusWithHeaders($port, '/sitemap.xml', ['Host: bad_host.example']), $rootName . ' configured URL takes priority over hostile Host');
         } finally {
             proc_terminate($process);
             foreach ($pipes as $pipe) {
@@ -370,12 +380,42 @@ try {
             $documentRoot,
             $router,
             $invalidUrlBranding,
-            $invalidUrlPath . DIRECTORY_SEPARATOR . 'content'
+            $invalidUrlPath . DIRECTORY_SEPARATOR . 'content',
+            'production'
         );
         try {
-            assertSameValue(503, requestStatus($port, '/'), $rootName . ' invalid configured URL homepage');
+            assertSameValue(200, requestStatus($port, '/'), $rootName . ' invalid SEO URL does not break homepage');
+            assertSameValue(200, requestStatus($port, '/quiz'), $rootName . ' invalid SEO URL does not break quiz route');
             assertSameValue(503, requestStatus($port, '/robots.txt'), $rootName . ' invalid configured URL robots');
             assertSameValue('Service temporarily unavailable.', requestBody($port, '/robots.txt'), $rootName . ' invalid URL response remains neutral');
+        } finally {
+            proc_terminate($process);
+            foreach ($pipes as $pipe) {
+                fclose($pipe);
+            }
+            proc_close($process);
+        }
+
+        $productionNoUrlPath = $temporaryRoot . DIRECTORY_SEPARATOR . $rootName . '-production-no-url';
+        mkdir($productionNoUrlPath, 0700, true);
+        $productionNoUrlBranding = $productionNoUrlPath . DIRECTORY_SEPARATOR . 'branding.php';
+        writeBranding($productionNoUrlBranding, $examplePath, 'quiz');
+        [$process, $pipes, $port] = startServer(
+            $root,
+            $documentRoot,
+            $router,
+            $productionNoUrlBranding,
+            $productionNoUrlPath . DIRECTORY_SEPARATOR . 'content',
+            'production'
+        );
+        try {
+            assertSameValue(200, requestStatus($port, '/'), $rootName . ' production without URL keeps homepage');
+            assertSameValue(200, requestStatus($port, '/quiz'), $rootName . ' production without URL keeps quiz');
+            assertSameValue(503, requestStatus($port, '/robots.txt'), $rootName . ' production robots requires configured URL');
+            assertSameValue(503, requestStatus($port, '/sitemap.xml'), $rootName . ' production sitemap requires configured URL');
+            assertSameValue(503, requestStatusWithHeaders($port, '/sitemap.xml', ['Host: valid.example']), $rootName . ' production valid Host cannot replace configuration');
+            assertSameValue(503, requestStatusWithHeaders($port, '/sitemap.xml', ['Host: bad_host.example']), $rootName . ' production hostile Host remains neutral without configuration');
+            assertSameValue('Service temporarily unavailable.', requestBody($port, '/robots.txt'), $rootName . ' missing production URL response remains neutral');
         } finally {
             proc_terminate($process);
             foreach ($pipes as $pipe) {

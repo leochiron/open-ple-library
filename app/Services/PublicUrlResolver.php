@@ -10,13 +10,15 @@ use InvalidArgumentException;
 final class PublicUrlResolver
 {
     private ?string $configuredBaseUrl;
+    private string $environment;
     private bool $trustForwardedProto;
     /** @var string[] */
     private array $trustedProxyIps;
 
-    private function __construct(?string $configuredBaseUrl, bool $trustForwardedProto, array $trustedProxyIps)
+    private function __construct(?string $configuredBaseUrl, string $environment, bool $trustForwardedProto, array $trustedProxyIps)
     {
         $this->configuredBaseUrl = $configuredBaseUrl;
+        $this->environment = $environment;
         $this->trustForwardedProto = $trustForwardedProto;
         $this->trustedProxyIps = $trustedProxyIps;
     }
@@ -31,6 +33,11 @@ final class PublicUrlResolver
             ? self::normalizeConfiguredUrl($configured)
             : null;
 
+        $environment = $config['environment'] ?? 'production';
+        if (!is_string($environment) || !in_array($environment, ['production', 'development', 'testing'], true)) {
+            throw new InvalidArgumentException('Invalid application environment.');
+        }
+
         $trustForwardedProto = $config['trust_forwarded_proto'] ?? false;
         $trustedProxyIps = $config['trusted_proxy_ips'] ?? [];
         if (!is_bool($trustForwardedProto) || !is_array($trustedProxyIps)) {
@@ -42,13 +49,16 @@ final class PublicUrlResolver
             }
         }
 
-        return new self($configured, $trustForwardedProto, array_values($trustedProxyIps));
+        return new self($configured, $environment, $trustForwardedProto, array_values($trustedProxyIps));
     }
 
     public function resolve(array $server): string
     {
         if ($this->configuredBaseUrl !== null) {
             return $this->configuredBaseUrl;
+        }
+        if (!in_array($this->environment, ['development', 'testing'], true)) {
+            throw new InvalidArgumentException('Public URL is not configured.');
         }
 
         $hostHeader = $server['HTTP_HOST'] ?? ($server['SERVER_NAME'] ?? null);
@@ -76,6 +86,10 @@ final class PublicUrlResolver
     private static function normalizeConfiguredUrl(string $url): string
     {
         self::rejectControlCharacters($url);
+        if (preg_match('#^https?://([^/]+)(?:/)?$#iD', $url, $authorityMatch) !== 1) {
+            throw new InvalidArgumentException('Invalid public URL configuration.');
+        }
+        self::validateBracketSyntax($authorityMatch[1]);
         try {
             $parts = parse_url($url);
         } catch (\ValueError $exception) {
@@ -99,6 +113,7 @@ final class PublicUrlResolver
         if ($authority === '' || trim($authority) !== $authority || strlen($authority) > 255) {
             throw new InvalidArgumentException('Invalid public request host.');
         }
+        self::validateBracketSyntax($authority);
         try {
             $parts = parse_url('http://' . $authority);
         } catch (\ValueError $exception) {
@@ -141,6 +156,22 @@ final class PublicUrlResolver
             }
         }
         return true;
+    }
+
+    private static function validateBracketSyntax(string $authority): void
+    {
+        $hasOpeningBracket = strpos($authority, '[') !== false;
+        $hasClosingBracket = strpos($authority, ']') !== false;
+        if (!$hasOpeningBracket && !$hasClosingBracket) {
+            return;
+        }
+        if (preg_match('/^\[([^\[\]]+)\](?::([0-9]{1,5}))?$/D', $authority, $match) !== 1
+            || filter_var($match[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
+            throw new InvalidArgumentException('Invalid IPv6 host syntax.');
+        }
+        if (isset($match[2]) && ((int)$match[2] < 1 || (int)$match[2] > 65535)) {
+            throw new InvalidArgumentException('Invalid public request port.');
+        }
     }
 
     private static function rejectControlCharacters(string $value): void

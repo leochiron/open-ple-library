@@ -70,7 +70,6 @@ $translations = require __DIR__ . '/../app/Config/i18n.php';
 
 try {
     $applicationProfile = ApplicationProfile::fromBranding($config['branding']);
-    $publicBaseUrl = PublicUrlResolver::fromConfig($config)->resolve($_SERVER);
     $applicationRouter = new ApplicationRouter($applicationProfile);
     $routeCategory = $applicationRouter->classify($_SERVER['REQUEST_URI'] ?? '/');
 } catch (InvalidArgumentException $exception) {
@@ -82,13 +81,22 @@ try {
 }
 
 // Keep canonical SEO files public even when library password protection is enabled.
-if ($earlyPath === '/robots.txt') {
-    serveRobotsTxt($publicBaseUrl);
-    exit;
-}
+if ($earlyPath === '/robots.txt' || $earlyPath === '/sitemap.xml') {
+    try {
+        $publicBaseUrl = PublicUrlResolver::fromConfig($config)->resolve($_SERVER);
+    } catch (InvalidArgumentException $exception) {
+        error_log('Public URL configuration error: ' . $exception->getMessage());
+        http_response_code(503);
+        header('Content-Type: text/plain; charset=utf-8');
+        echo 'Service temporarily unavailable.';
+        exit;
+    }
 
-if ($earlyPath === '/sitemap.xml') {
-    serveSitemapXml($publicBaseUrl);
+    if ($earlyPath === '/robots.txt') {
+        serveRobotsTxt($publicBaseUrl);
+    } else {
+        serveSitemapXml($publicBaseUrl);
+    }
     exit;
 }
 

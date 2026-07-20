@@ -146,8 +146,10 @@ development environment.
 `robots.txt` and `sitemap.xml` are generated through the same PHP front
 controller for both supported document roots. Set `public_base_url` to the
 deployment origin, for example `https://courses.example.org`; this validated
-value takes priority over request headers. Without it, the application validates
-`Host` strictly and derives HTTPS from the server. `X-Forwarded-Proto` is ignored
+value is required for SEO endpoints in production and takes priority over
+request headers. A missing or invalid value makes only `robots.txt` and
+`sitemap.xml` return a neutral 503. Strict `Host` fallback is limited to
+`APP_ENV=development` and `APP_ENV=testing`. `X-Forwarded-Proto` is ignored
 unless `trust_forwarded_proto=true` and the request comes from an IP explicitly
 listed in `trusted_proxy_ips`. The old hard-coded `ple-sansfrontieres.org`
 sitemap is no longer shipped.
