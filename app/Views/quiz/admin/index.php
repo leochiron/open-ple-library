@@ -5,6 +5,9 @@ declare(strict_types=1);
 /** @var array $sessions */
 /** @var string $flash */
 /** @var array $old */
+/** @var array $admin */
+/** @var bool $showAll */
+/** @var string $csrfToken */
 /** @var App\Services\I18nService $i18n */
 
 // Repopulate the create form after a validation error (keys default to empty)
@@ -30,6 +33,16 @@ $stateLabels = [
 <section class="card">
     <header class="card-header">
         <h1><?php echo htmlspecialchars($i18n->t('quiz.admin.title'), ENT_QUOTES, 'UTF-8'); ?></h1>
+        <div class="quiz-admin-actions">
+            <span><?php echo htmlspecialchars($admin['display_name'], ENT_QUOTES, 'UTF-8'); ?></span>
+            <?php if ($admin['role'] === 'super_admin'): ?>
+                <a class="btn ghost" href="/quiz-admin/users">Utilisateurs</a>
+                <a class="btn ghost" href="<?php echo $showAll ? '/quiz-admin' : '/quiz-admin?scope=all'; ?>">
+                    <?php echo $showAll ? 'Mes quiz' : 'Tous les quiz'; ?>
+                </a>
+            <?php endif; ?>
+            <a class="btn ghost" href="/quiz-admin/logout">Déconnexion</a>
+        </div>
     </header>
     <div class="card-body">
         <?php if ($flash !== ''): ?>
@@ -47,6 +60,7 @@ $stateLabels = [
                         <th>PIN</th>
                         <th><?php echo htmlspecialchars($i18n->t('quiz.admin.col_students'), ENT_QUOTES, 'UTF-8'); ?></th>
                         <th><?php echo htmlspecialchars($i18n->t('quiz.admin.col_attempts'), ENT_QUOTES, 'UTF-8'); ?></th>
+                        <?php if ($showAll): ?><th>Propriétaire</th><?php endif; ?>
                         <th></th>
                     </tr>
                 </thead>
@@ -58,6 +72,7 @@ $stateLabels = [
                             <td><?php echo $s['access_pin'] !== null ? htmlspecialchars($s['access_pin'], ENT_QUOTES, 'UTF-8') : '—'; ?></td>
                             <td><?php echo (int)$s['student_count']; ?></td>
                             <td><?php echo (int)$s['attempt_count']; ?></td>
+                            <?php if ($showAll): ?><td><?php echo htmlspecialchars($s['owner_name'], ENT_QUOTES, 'UTF-8'); ?></td><?php endif; ?>
                             <td><a class="btn ghost" href="/quiz-admin/session?id=<?php echo (int)$s['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.manage'), ENT_QUOTES, 'UTF-8'); ?></a></td>
                         </tr>
                     <?php endforeach; ?>
@@ -89,6 +104,7 @@ $stateLabels = [
         </details>
 
         <form method="post" action="/quiz-admin/create" class="quiz-admin-form" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
             <div class="quiz-field quiz-field--full">
                 <label for="qa-title"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_title'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <input type="text" id="qa-title" name="title" required class="quiz-input" value="<?php echo $oldVal('title'); ?>">

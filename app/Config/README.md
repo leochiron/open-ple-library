@@ -27,6 +27,8 @@ ou les deux fonctions :
 'quiz' => [
     'enabled' => true,
     'show_admin_link' => true,
+    'bootstrap_admin_email' => 'admin@example.org',
+    'bootstrap_admin_name' => 'Site administrator',
 ],
 'public_base_url' => 'https://courses.example.org',
 'trust_forwarded_proto' => false,
@@ -41,6 +43,12 @@ ou les deux fonctions :
 Une ancienne configuration qui ne contient pas ces clés reste automatiquement
 en mode `hybrid`, avec le module quiz actif : aucune migration de configuration
 n'est nécessaire.
+
+Au premier démarrage, `bootstrap_admin_email` initialise le premier
+`super_admin`. Son mot de passe doit être fourni par la variable
+`QUIZ_BOOTSTRAP_ADMIN_PASSWORD`. L'ancienne clé `quiz_admin_password` reste
+acceptée uniquement pour migrer une installation existante. Les quiz existants
+sont alors attribués à ce premier compte.
 
 `public_base_url` fixe l'origine publique utilisée par `robots.txt` et le
 sitemap. Sa valeur doit contenir uniquement `http://` ou `https://`, un nom

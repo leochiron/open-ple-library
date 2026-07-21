@@ -24,6 +24,8 @@ class QuizService
     private PDO $db;
     private string $storagePath;
     private string $hmacSecret;
+    /** @var array{id:int,role:string}|null */
+    private ?array $adminContext = null;
 
     public function __construct(QuizDbService $dbService, array $config, string $storagePath)
     {
@@ -32,12 +34,37 @@ class QuizService
         $this->hmacSecret = $this->resolveHmacSecret($config['branding']['quiz_hmac_secret'] ?? null);
     }
 
+    /** Bind the authenticated administrator to every teacher-side operation. */
+    public function setAdminContext(array $admin): void
+    {
+        $id = (int)($admin['id'] ?? 0);
+        $role = (string)($admin['role'] ?? '');
+        if ($id < 1 || !in_array($role, ['super_admin', 'quiz_admin'], true)) {
+            throw new RuntimeException('invalid_admin_context');
+        }
+        $this->adminContext = ['id' => $id, 'role' => $role];
+    }
+
+    private function currentAdminId(): int
+    {
+        if ($this->adminContext === null) {
+            throw new RuntimeException('admin_auth_required');
+        }
+        return $this->adminContext['id'];
+    }
+
+    private function isSuperAdmin(): bool
+    {
+        return $this->adminContext !== null && $this->adminContext['role'] === 'super_admin';
+    }
+
     // ------------------------------------------------------------------
     // Sessions (teacher side)
     // ------------------------------------------------------------------
 
     public function createSession(array $data, string $rosterText): array
     {
+        $ownerId = $this->currentAdminId();
         $title = trim((string)($data['title'] ?? ''));
         $formUrl = trim((string)($data['google_form_url'] ?? ''));
         $entryId = $this->normalizeEntryId((string)($data['attempt_entry_id'] ?? ''));
@@ -52,10 +79,11 @@ class QuizService
         $slug = $this->generateSlug($title);
 
         $stmt = $this->db->prepare(
-            'INSERT INTO quiz_sessions (slug, title, google_form_url, attempt_entry_id, duration_minutes, max_incidents, min_away_seconds, require_fullscreen, reload_is_incident, state)
-             VALUES (:slug, :title, :url, :entry, :duration, :max_incidents, :min_away, :fullscreen, :reload, :state)'
+            'INSERT INTO quiz_sessions (owner_admin_id, slug, title, google_form_url, attempt_entry_id, duration_minutes, max_incidents, min_away_seconds, require_fullscreen, reload_is_incident, state)
+             VALUES (:owner, :slug, :title, :url, :entry, :duration, :max_incidents, :min_away, :fullscreen, :reload, :state)'
         );
         $stmt->execute([
+            'owner' => $ownerId,
             'slug' => $slug,
             'title' => $title,
             'url' => $formUrl,
@@ -127,6 +155,7 @@ class QuizService
      */
     public function importRoster(int $sessionId, string $rosterText): int
     {
+        $this->requireSession($sessionId);
         // CSV exports are often Windows-1252; the rest of the app is UTF-8
         $rosterText = (string)preg_replace('/^\xEF\xBB\xBF/', '', $rosterText);
         if (!mb_check_encoding($rosterText, 'UTF-8')) {
@@ -194,22 +223,51 @@ class QuizService
         return $count;
     }
 
-    public function listSessions(): array
+    public function listSessions(bool $includeAll = false): array
     {
-        return $this->db->query(
-            'SELECT s.*,
+        $adminId = $this->currentAdminId();
+        $sql = 'SELECT s.*, u.display_name AS owner_name, u.email AS owner_email,
                     (SELECT COUNT(*) FROM quiz_students st WHERE st.session_id = s.id) AS student_count,
                     (SELECT COUNT(*) FROM quiz_attempts a WHERE a.session_id = s.id) AS attempt_count
-             FROM quiz_sessions s ORDER BY s.id DESC'
-        )->fetchAll();
+             FROM quiz_sessions s JOIN admin_users u ON u.id = s.owner_admin_id';
+        if (!$includeAll || !$this->isSuperAdmin()) {
+            $sql .= ' WHERE s.owner_admin_id = :owner';
+        }
+        $sql .= ' ORDER BY s.id DESC';
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute((!$includeAll || !$this->isSuperAdmin()) ? ['owner' => $adminId] : []);
+        return $stmt->fetchAll();
     }
 
     public function getSession(int $id): ?array
     {
-        $stmt = $this->db->prepare('SELECT * FROM quiz_sessions WHERE id = :id');
-        $stmt->execute(['id' => $id]);
+        $sql = 'SELECT * FROM quiz_sessions WHERE id = :id';
+        $params = ['id' => $id];
+        if ($this->adminContext !== null && !$this->isSuperAdmin()) {
+            $sql .= ' AND owner_admin_id = :owner';
+            $params['owner'] = $this->adminContext['id'];
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         $row = $stmt->fetch();
         return $row === false ? null : $row;
+    }
+
+    /** Transfer one session; the caller must be an authenticated super-admin. */
+    public function transferSession(int $sessionId, int $newOwnerId): void
+    {
+        $this->currentAdminId();
+        if (!$this->isSuperAdmin()) {
+            throw new RuntimeException('resource_not_found');
+        }
+        $this->requireSession($sessionId);
+        $stmt = $this->db->prepare("SELECT id FROM admin_users WHERE id = :id AND status = 'active'");
+        $stmt->execute(['id' => $newOwnerId]);
+        if ($stmt->fetchColumn() === false) {
+            throw new RuntimeException('invalid_owner');
+        }
+        $stmt = $this->db->prepare('UPDATE quiz_sessions SET owner_admin_id = :owner WHERE id = :id');
+        $stmt->execute(['owner' => $newOwnerId, 'id' => $sessionId]);
     }
 
     public function findSessionByPin(string $pin): ?array
@@ -299,6 +357,7 @@ class QuizService
 
     public function close(int $sessionId): void
     {
+        $this->requireSession($sessionId);
         $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'closed', closed_at = :now, access_pin = NULL WHERE id = :id");
         $stmt->execute(['now' => $this->now(), 'id' => $sessionId]);
     }
@@ -310,6 +369,7 @@ class QuizService
      */
     public function updateStudents(int $sessionId, array $rows): array
     {
+        $this->requireSession($sessionId);
         $updated = 0;
         $errors = 0;
         foreach ($rows as $studentId => $data) {
@@ -329,6 +389,7 @@ class QuizService
     /** Edits a student's identity (first/last name, email). The code never changes. */
     public function updateStudent(int $studentId, int $sessionId, array $data): void
     {
+        $this->requireSession($sessionId);
         $first = trim((string)($data['first_name'] ?? ''));
         $last = trim((string)($data['last_name'] ?? ''));
         $email = trim((string)($data['email'] ?? ''));
@@ -360,6 +421,7 @@ class QuizService
      */
     public function deleteStudent(int $studentId, int $sessionId): ?string
     {
+        $this->requireSession($sessionId);
         $stmt = $this->db->prepare('SELECT first_name, last_name FROM quiz_students WHERE id = :id AND session_id = :sid');
         $stmt->execute(['id' => $studentId, 'sid' => $sessionId]);
         $student = $stmt->fetch();
@@ -383,6 +445,7 @@ class QuizService
 
     public function listStudents(int $sessionId): array
     {
+        $this->requireSession($sessionId);
         $stmt = $this->db->prepare('SELECT * FROM quiz_students WHERE session_id = :sid ORDER BY last_name, first_name');
         $stmt->execute(['sid' => $sessionId]);
         return $stmt->fetchAll();
@@ -452,6 +515,7 @@ class QuizService
 
     public function listAttempts(int $sessionId): array
     {
+        $this->requireSession($sessionId);
         $stmt = $this->db->prepare(
             'SELECT a.*, st.first_name, st.last_name, st.code,
                     (SELECT COUNT(*) FROM quiz_events e WHERE e.attempt_id = a.id) AS event_count
@@ -466,6 +530,7 @@ class QuizService
 
     public function listEvents(int $sessionId): array
     {
+        $this->requireSession($sessionId);
         $stmt = $this->db->prepare(
             'SELECT e.*, st.first_name, st.last_name
              FROM quiz_events e
@@ -480,6 +545,9 @@ class QuizService
 
     public function listEventsForAttempt(int $attemptId): array
     {
+        if ($this->getAttempt($attemptId) === null) {
+            throw new RuntimeException('resource_not_found');
+        }
         $stmt = $this->db->prepare('SELECT * FROM quiz_events WHERE attempt_id = :aid ORDER BY id DESC');
         $stmt->execute(['aid' => $attemptId]);
         return $stmt->fetchAll();
@@ -488,6 +556,7 @@ class QuizService
     /** New events for the live feed: everything after $afterId, oldest first. */
     public function listEventsSince(int $sessionId, int $afterId, int $limit = 100): array
     {
+        $this->requireSession($sessionId);
         $stmt = $this->db->prepare(
             'SELECT e.*, a.student_id, st.first_name, st.last_name
              FROM quiz_events e
@@ -518,6 +587,7 @@ class QuizService
         if ($event === false || (int)$event['is_incident'] !== 1) {
             return null;
         }
+        $this->requireSession((int)$event['session_id']);
 
         $upd = $this->db->prepare('UPDATE quiz_events SET excused = :ex WHERE id = :id');
         $upd->execute(['ex' => $excused ? 1 : 0, 'id' => (int)$event['id']]);
@@ -624,12 +694,18 @@ class QuizService
 
     public function getAttempt(int $attemptId): ?array
     {
-        $stmt = $this->db->prepare(
-            'SELECT a.*, st.first_name, st.last_name, st.code
-             FROM quiz_attempts a JOIN quiz_students st ON st.id = a.student_id
-             WHERE a.id = :id'
-        );
-        $stmt->execute(['id' => $attemptId]);
+        $sql = 'SELECT a.*, st.first_name, st.last_name, st.code
+             FROM quiz_attempts a
+             JOIN quiz_students st ON st.id = a.student_id
+             JOIN quiz_sessions s ON s.id = a.session_id
+             WHERE a.id = :id';
+        $params = ['id' => $attemptId];
+        if ($this->adminContext !== null && !$this->isSuperAdmin()) {
+            $sql .= ' AND s.owner_admin_id = :owner';
+            $params['owner'] = $this->adminContext['id'];
+        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         $row = $stmt->fetch();
         return $row === false ? null : $row;
     }
@@ -768,7 +844,7 @@ class QuizService
     {
         $session = $this->getSession($id);
         if ($session === null) {
-            throw new RuntimeException('session_not_found');
+            throw new RuntimeException('resource_not_found');
         }
         return $session;
     }

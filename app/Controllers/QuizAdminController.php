@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Services\I18nService;
+use App\Services\QuizAdminAuthService;
 use App\Services\QuizService;
 use RuntimeException;
 use Throwable;
@@ -16,15 +17,16 @@ use Throwable;
  */
 class QuizAdminController
 {
-    private const SESSION_KEY = 'quiz_admin_authenticated';
-
     private QuizService $quiz;
+    private QuizAdminAuthService $auth;
     private I18nService $i18n;
     private array $config;
+    private ?array $currentAdmin = null;
 
-    public function __construct(QuizService $quiz, I18nService $i18n, array $config)
+    public function __construct(QuizService $quiz, QuizAdminAuthService $auth, I18nService $i18n, array $config)
     {
         $this->quiz = $quiz;
+        $this->auth = $auth;
         $this->i18n = $i18n;
         $this->config = $config;
     }
@@ -35,24 +37,27 @@ class QuizAdminController
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
         try {
-            $password = (string)($this->config['branding']['quiz_admin_password'] ?? '');
-            if ($password === '') {
+            $this->auth->bootstrapFromConfig($this->config['branding']);
+
+            if (!$this->auth->hasAdmins()) {
                 http_response_code(503);
-                echo 'Quiz admin is not configured. Set quiz_admin_password in branding.php.';
+                echo 'Quiz admin is not configured.';
                 return;
             }
 
             if ($subPath === '/login' && $method === 'POST') {
-                $this->login($password);
+                $this->assertCsrf();
+                $this->login();
                 return;
             }
             if ($subPath === '/logout') {
-                unset($_SESSION[self::SESSION_KEY]);
+                $this->auth->logout();
                 header('Location: /quiz-admin');
                 exit;
             }
 
-            if (empty($_SESSION[self::SESSION_KEY])) {
+            $this->currentAdmin = $this->auth->currentAdmin();
+            if ($this->currentAdmin === null) {
                 // API routes must answer with JSON, never the HTML login page:
                 // an auto-refreshing page (board, session) can then detect the
                 // lost session instead of silently parsing login markup as JSON.
@@ -62,12 +67,42 @@ class QuizAdminController
                     echo json_encode(['error' => 'auth_required']);
                     return;
                 }
-                render('quiz/admin/login', ['error' => ''], $this->i18n, $this->config);
+                render('quiz/admin/login', ['error' => '', 'csrfToken' => $this->csrfToken()], $this->i18n, $this->config);
                 return;
+            }
+            $this->quiz->setAdminContext($this->currentAdmin);
+
+            if ($subPath === '/change-password' && $method === 'POST') {
+                $this->assertCsrf();
+                $this->changePassword();
+                return;
+            }
+            if (!empty($this->currentAdmin['must_change_password'])) {
+                render('quiz/admin/change-password', [
+                    'admin' => $this->currentAdmin,
+                    'error' => '',
+                    'csrfToken' => $this->csrfToken(),
+                ], $this->i18n, $this->config);
+                return;
+            }
+            if ($method === 'POST') {
+                $this->assertCsrf();
             }
 
             if ($subPath === '/' && $method === 'GET') {
                 $this->index();
+            } elseif ($subPath === '/users' && $method === 'GET') {
+                $this->users();
+            } elseif ($subPath === '/users/create' && $method === 'POST') {
+                $this->createUser();
+            } elseif ($subPath === '/users/status' && $method === 'POST') {
+                $this->setUserStatus();
+            } elseif ($subPath === '/users/password' && $method === 'POST') {
+                $this->resetUserPassword();
+            } elseif ($subPath === '/users/transfer' && $method === 'POST') {
+                $this->transferUserSessions();
+            } elseif ($subPath === '/session/transfer' && $method === 'POST') {
+                $this->transferSession();
             } elseif ($subPath === '/create' && $method === 'POST') {
                 $this->create();
             } elseif ($subPath === '/session' && $method === 'GET') {
@@ -109,6 +144,16 @@ class QuizAdminController
                 echo 'Not found';
             }
         } catch (Throwable $e) {
+            if ($e instanceof RuntimeException && $e->getMessage() === 'resource_not_found') {
+                http_response_code(404);
+                echo 'Not found';
+                return;
+            }
+            if ($e instanceof RuntimeException && $e->getMessage() === 'invalid_csrf_token') {
+                http_response_code(403);
+                echo 'Invalid request token.';
+                return;
+            }
             http_response_code(500);
             echo 'Erreur interne.';
             error_log('Quiz admin error: ' . $e->getMessage() . ' | ' . $e->getFile() . ':' . $e->getLine());
@@ -117,23 +162,29 @@ class QuizAdminController
 
     // ------------------------------------------------------------------
 
-    private function login(string $password): void
+    private function login(): void
     {
-        $given = (string)($_POST['admin_password'] ?? '');
-        if (hash_equals($password, $given)) {
-            $_SESSION[self::SESSION_KEY] = true;
+        $email = (string)($_POST['admin_email'] ?? '');
+        $password = (string)($_POST['admin_password'] ?? '');
+        if ($this->auth->authenticate($email, $password)) {
             header('Location: /quiz-admin');
             exit;
         }
         render('quiz/admin/login', [
             'error' => $this->i18n->t('auth.invalid_password'),
+            'csrfToken' => $this->csrfToken(),
         ], $this->i18n, $this->config);
     }
 
     private function index(string $flash = '', array $old = []): void
     {
         render('quiz/admin/index', [
-            'sessions' => $this->quiz->listSessions(),
+            'sessions' => $this->quiz->listSessions(
+                $this->isSuperAdmin() && (string)($_GET['scope'] ?? '') === 'all'
+            ),
+            'admin' => $this->currentAdmin,
+            'showAll' => $this->isSuperAdmin() && (string)($_GET['scope'] ?? '') === 'all',
+            'csrfToken' => $this->csrfToken(),
             'flash' => $flash !== '' ? $flash : (string)($_GET['flash'] ?? ''),
             'old' => $old,
         ], $this->i18n, $this->config);
@@ -172,6 +223,9 @@ class QuizAdminController
             'attempts' => $this->quiz->listAttempts((int)$session['id']),
             'recentEvents' => array_slice($this->quiz->listEvents((int)$session['id']), 0, 30),
             'flash' => (string)($_GET['flash'] ?? ''),
+            'admin' => $this->currentAdmin,
+            'admins' => $this->isSuperAdmin() ? $this->auth->listAdmins() : [],
+            'csrfToken' => $this->csrfToken(),
         ], $this->i18n, $this->config);
     }
 
@@ -254,6 +308,7 @@ class QuizAdminController
             'session' => $session,
             'attempt' => $attempt,
             'events' => $this->quiz->listEventsForAttempt($id),
+            'csrfToken' => $this->csrfToken(),
         ], $this->i18n, $this->config);
     }
 
@@ -469,6 +524,175 @@ class QuizAdminController
             'pin' => $session['access_pin'] ?? null,
             'attempts' => $rows,
         ]);
+    }
+
+    private function users(): void
+    {
+        $this->requireSuperAdmin();
+        render('quiz/admin/users', [
+            'admin' => $this->currentAdmin,
+            'admins' => $this->auth->listAdmins(),
+            'flash' => (string)($_GET['flash'] ?? ''),
+            'csrfToken' => $this->csrfToken(),
+        ], $this->i18n, $this->config);
+    }
+
+    private function createUser(): void
+    {
+        $this->requireSuperAdmin();
+        try {
+            $this->auth->createAdmin(
+                (string)($_POST['email'] ?? ''),
+                (string)($_POST['display_name'] ?? ''),
+                (string)($_POST['password'] ?? ''),
+                (string)($_POST['role'] ?? QuizAdminAuthService::ROLE_QUIZ_ADMIN),
+                true
+            );
+            $flash = 'Compte administrateur créé.';
+        } catch (Throwable $e) {
+            $flash = 'Création impossible : ' . $e->getMessage();
+        }
+        $this->redirectUsers($flash);
+    }
+
+    private function setUserStatus(): void
+    {
+        $this->requireSuperAdmin();
+        $id = (int)($_POST['admin_id'] ?? 0);
+        $status = (string)($_POST['status'] ?? '');
+        try {
+            if ($id === (int)$this->currentAdmin['id'] && $status === QuizAdminAuthService::STATUS_DISABLED) {
+                throw new RuntimeException('self_disable_forbidden');
+            }
+            if ($status === QuizAdminAuthService::STATUS_DISABLED) {
+                foreach ($this->quiz->listSessions(true) as $session) {
+                    if ((int)$session['owner_admin_id'] === $id) {
+                        throw new RuntimeException('transfer_sessions_first');
+                    }
+                }
+                $target = $this->auth->findAdmin($id);
+                if ($target !== null && $target['role'] === QuizAdminAuthService::ROLE_SUPER_ADMIN) {
+                    $activeSupers = array_filter($this->auth->listAdmins(), static function (array $admin): bool {
+                        return $admin['role'] === QuizAdminAuthService::ROLE_SUPER_ADMIN
+                            && $admin['status'] === QuizAdminAuthService::STATUS_ACTIVE;
+                    });
+                    if (count($activeSupers) <= 1) {
+                        throw new RuntimeException('last_super_admin');
+                    }
+                }
+            }
+            $this->auth->setStatus($id, $status);
+            $flash = 'Statut du compte mis à jour.';
+        } catch (Throwable $e) {
+            $flash = 'Modification impossible : ' . $e->getMessage();
+        }
+        $this->redirectUsers($flash);
+    }
+
+    private function resetUserPassword(): void
+    {
+        $this->requireSuperAdmin();
+        try {
+            $this->auth->resetPassword(
+                (int)($_POST['admin_id'] ?? 0),
+                (string)($_POST['password'] ?? ''),
+                true
+            );
+            $flash = 'Mot de passe temporaire enregistré.';
+        } catch (Throwable $e) {
+            $flash = 'Réinitialisation impossible : ' . $e->getMessage();
+        }
+        $this->redirectUsers($flash);
+    }
+
+    private function transferUserSessions(): void
+    {
+        $this->requireSuperAdmin();
+        try {
+            $count = $this->auth->transferSessionsOwnership(
+                (int)($_POST['from_admin_id'] ?? 0),
+                (int)($_POST['to_admin_id'] ?? 0)
+            );
+            $flash = $count . ' quiz transféré(s).';
+        } catch (Throwable $e) {
+            $flash = 'Transfert impossible : ' . $e->getMessage();
+        }
+        $this->redirectUsers($flash);
+    }
+
+    private function transferSession(): void
+    {
+        $this->requireSuperAdmin();
+        $id = (int)($_POST['id'] ?? 0);
+        try {
+            $this->quiz->transferSession($id, (int)($_POST['owner_admin_id'] ?? 0));
+            $flash = 'Propriétaire du quiz mis à jour.';
+        } catch (Throwable $e) {
+            $flash = 'Transfert impossible : ' . $e->getMessage();
+        }
+        header('Location: /quiz-admin/session?id=' . $id . '&flash=' . urlencode($flash));
+        exit;
+    }
+
+    private function changePassword(): void
+    {
+        $oldPassword = (string)($_POST['current_password'] ?? '');
+        $newPassword = (string)($_POST['new_password'] ?? '');
+        if (!$this->auth->authenticate((string)$this->currentAdmin['email'], $oldPassword)) {
+            render('quiz/admin/change-password', [
+                'admin' => $this->currentAdmin,
+                'error' => 'Mot de passe actuel incorrect.',
+                'csrfToken' => $this->csrfToken(),
+            ], $this->i18n, $this->config);
+            return;
+        }
+        try {
+            $this->auth->resetPassword((int)$this->currentAdmin['id'], $newPassword, false);
+        } catch (Throwable $e) {
+            render('quiz/admin/change-password', [
+                'admin' => $this->currentAdmin,
+                'error' => 'Le nouveau mot de passe doit contenir au moins 12 caractères.',
+                'csrfToken' => $this->csrfToken(),
+            ], $this->i18n, $this->config);
+            return;
+        }
+        header('Location: /quiz-admin');
+        exit;
+    }
+
+    private function isSuperAdmin(): bool
+    {
+        return $this->currentAdmin !== null
+            && $this->currentAdmin['role'] === QuizAdminAuthService::ROLE_SUPER_ADMIN;
+    }
+
+    private function requireSuperAdmin(): void
+    {
+        if (!$this->isSuperAdmin()) {
+            throw new RuntimeException('resource_not_found');
+        }
+    }
+
+    private function redirectUsers(string $flash): void
+    {
+        header('Location: /quiz-admin/users?flash=' . urlencode($flash));
+        exit;
+    }
+
+    private function csrfToken(): string
+    {
+        if (!isset($_SESSION['quiz_admin_csrf']) || !is_string($_SESSION['quiz_admin_csrf'])) {
+            $_SESSION['quiz_admin_csrf'] = bin2hex(random_bytes(24));
+        }
+        return $_SESSION['quiz_admin_csrf'];
+    }
+
+    private function assertCsrf(): void
+    {
+        $given = (string)($_POST['_csrf'] ?? '');
+        if ($given === '' || !hash_equals($this->csrfToken(), $given)) {
+            throw new RuntimeException('invalid_csrf_token');
+        }
     }
 
     private function requireSessionFromQuery(): array

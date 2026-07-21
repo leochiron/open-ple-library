@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+/** @var string $csrfToken */
+
 /**
  * Dedicated page: every monitoring event of one student's attempt.
  *
@@ -86,6 +88,7 @@ $overQuota = (int)$attempt['incident_count'] >= $maxIncidents;
                             <td>
                                 <?php if ($isIncident): ?>
                                     <form method="post" action="/quiz-admin/event/excuse" style="display:inline;">
+                                        <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                                         <input type="hidden" name="event_id" value="<?php echo (int)$e['id']; ?>">
                                         <input type="hidden" name="attempt_id" value="<?php echo (int)$attempt['id']; ?>">
                                         <input type="hidden" name="excused" value="<?php echo $isExcused ? '0' : '1'; ?>">

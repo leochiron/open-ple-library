@@ -199,6 +199,12 @@ Une relance ne doit pas supprimer définitivement les événements. Elle crée u
 
 ## 8. Comptes administrateurs et propriété des quiz
 
+> État d’implémentation — juillet 2026 : les comptes nominatifs, les rôles
+> `super_admin`/`quiz_admin`, la création manuelle, la désactivation, la
+> réinitialisation des mots de passe, la propriété des sessions et les transferts
+> sont disponibles. Les anciens quiz sont attribués au premier super-admin lors
+> de la migration. Le journal d’audit détaillé reste à réaliser.
+
 ### 8.1 Objectif
 
 Permettre à plusieurs enseignants d’utiliser la même installation tout en séparant leurs espaces de travail : chaque administrateur voit et gère ses propres quiz, classes, élèves et rapports.

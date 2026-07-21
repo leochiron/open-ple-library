@@ -137,6 +137,27 @@ quiz enabled. Set `quiz.enabled` to `false` as an emergency stop. On a quiz-only
 deployment this makes `/` return a neutral 503 response and hides all quiz
 subroutes.
 
+### Named quiz administrators
+
+Quiz administration uses named accounts. Configure the first super-administrator
+before the first visit to `/quiz-admin`:
+
+```php
+'quiz' => [
+    'enabled' => true,
+    'show_admin_link' => true,
+    'bootstrap_admin_email' => 'admin@example.org',
+    'bootstrap_admin_name' => 'Site administrator',
+],
+```
+
+Provide the initial password through `QUIZ_BOOTSTRAP_ADMIN_PASSWORD`. During the
+legacy migration only, `quiz_admin_password` is accepted as a fallback and is
+immediately stored as a password hash in SQLite. Existing quiz sessions are
+assigned to the first super-administrator. That account can create or disable
+other accounts, reset temporary passwords and transfer quiz ownership. Regular
+quiz administrators only see and manage sessions they own.
+
 Point the production document root at `public/` whenever the host allows it. The
 repository-root fallback remains supported, but relies on the root `.htaccess`
 to deny direct access to `app/`, `storage/`, `content/` and `.git/`. Detailed PHP
@@ -445,6 +466,8 @@ roots using PHP's built-in HTTP server:
 php tests/ApplicationProfileTest.php
 php tests/ApplicationRouterTest.php
 php tests/PublicUrlResolverTest.php
+php tests/QuizAdminAuthServiceTest.php
+php tests/QuizOwnershipIsolationTest.php
 php tests/RouteIntegrationTest.php
 php tests/WebServerRulesTest.php
 ```

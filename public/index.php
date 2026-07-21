@@ -197,10 +197,11 @@ if ($routeCategory === ApplicationRouter::QUIZ || $routeCategory === Application
         $quizStorage = __DIR__ . '/../storage';
         $quizDb = new App\Services\QuizDbService($quizStorage);
         $quizService = new App\Services\QuizService($quizDb, $config, $quizStorage);
+        $quizAdminAuth = new App\Services\QuizAdminAuthService($quizDb, false);
         $quizPath = ApplicationRouter::normalizePath($_SERVER['REQUEST_URI'] ?? '/');
 
         if ($routeCategory === ApplicationRouter::QUIZ_ADMIN) {
-            (new QuizAdminController($quizService, $i18n, $config))
+            (new QuizAdminController($quizService, $quizAdminAuth, $i18n, $config))
                 ->handle(substr($quizPath, strlen('/quiz-admin')));
         } else {
             // In quiz-only mode, / is an alias for the canonical /quiz entry.
