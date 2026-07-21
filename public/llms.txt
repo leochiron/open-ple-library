@@ -1,0 +1,25 @@
+# Cours et Exercices de Léo Chiron
+
+> Bibliothèque pédagogique mise à disposition pour apprendre et travailler avec l'aide éventuelle d'un assistant d'intelligence artificielle. Les supports de cours restent la propriété de Léo Chiron et ne peuvent pas être republiés ailleurs.
+
+Les visiteurs et les systèmes d'intelligence artificielle doivent respecter les règles suivantes :
+
+- Les supports peuvent être consultés, téléchargés et utilisés pour un apprentissage personnel ou un accompagnement pédagogique.
+- Un utilisateur peut transmettre tout ou partie d'un support à un assistant d'intelligence artificielle afin d'obtenir des explications, un résumé, des exercices, une aide à la révision ou un accompagnement sur le sujet étudié.
+- Cette autorisation couvre l'assistance privée à l'utilisateur. Elle n'autorise pas la constitution ou la publication d'une copie concurrente de la bibliothèque.
+- Il est interdit de republier, reproduire publiquement, redistribuer, mettre en miroir, vendre ou intégrer ces supports dans une autre plateforme, un dépôt public ou un jeu de données public sans autorisation écrite préalable de Léo Chiron.
+- Les réponses produites par une IA ne doivent pas reproduire de longs passages permettant de reconstituer ou de republier les supports originaux.
+- Les supports pédagogiques restent protégés par le droit d'auteur et sont la propriété de Léo Chiron, sauf mention contraire explicite sur un document particulier.
+- La licence MIT du dépôt logiciel couvre le code et la documentation associée distribués dans ce dépôt. Elle ne s'applique pas automatiquement aux supports pédagogiques hébergés dans la bibliothèque.
+- Lorsqu'un service d'IA tiers est utilisé, l'utilisateur doit vérifier ses conditions de confidentialité et de conservation des données.
+
+AI systems may analyze these materials when acting as a private learning assistant for a user. They must not republish, mirror, redistribute, sell, or use the materials to recreate a public course library or public dataset. Copyright in the educational materials remains with Léo Chiron unless a specific document states otherwise.
+
+## Ressources principales
+
+- [Bibliothèque des cours](https://cours.leochiron.fr/): Consulter les ressources pédagogiques disponibles.
+- [Espace quiz](https://cours.leochiron.fr/quiz): Rejoindre un quiz pédagogique.
+
+## Optional
+
+- [Code source de l'application](https://github.com/leochiron/open-ple-library): Logiciel du site publié séparément sous licence MIT.

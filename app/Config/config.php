@@ -10,7 +10,18 @@ if ($contentPath === false) {
 
 // Load branding configuration
 $brandingPath = __DIR__ . '/branding.php';
+$isTestRuntime = getenv('APP_ENV') === 'testing'
+    || (PHP_SAPI === 'cli-server' && getenv('PLE_TEST_MODE') === '1');
+$testBrandingPath = $isTestRuntime ? getenv('PLE_TEST_BRANDING') : false;
+if (is_string($testBrandingPath) && $testBrandingPath !== '' && is_file($testBrandingPath)) {
+    $brandingPath = $testBrandingPath;
+}
 $branding = file_exists($brandingPath) ? require $brandingPath : require __DIR__ . '/branding.example.php';
+
+$testContentPath = $isTestRuntime ? getenv('PLE_TEST_CONTENT_PATH') : false;
+if (is_string($testContentPath) && $testContentPath !== '') {
+    $contentPath = $testContentPath;
+}
 
 // Provide sane fallbacks when a deployment's branding.php predates new keys
 $defaultLanguage = $branding['default_language'] ?? 'fr';
@@ -25,5 +36,9 @@ return [
     'languages' => $languages,
     'language_cookie' => $languageCookie,
     'language_cookie_ttl' => $languageCookieTtl,
+    'environment' => getenv('APP_ENV') ?: 'production',
+    'public_base_url' => $branding['public_base_url'] ?? null,
+    'trust_forwarded_proto' => $branding['trust_forwarded_proto'] ?? false,
+    'trusted_proxy_ips' => $branding['trusted_proxy_ips'] ?? [],
     'branding' => $branding,
 ];

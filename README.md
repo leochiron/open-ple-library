@@ -22,7 +22,7 @@ A lightweight, public, read-only PHP interface for managing pedagogical librarie
 ```
 ├── public/                      # Web root (point your hosting document root here)
 │   ├── index.php               # Front controller and router
-│   ├── debug.php               # Debugging page for path resolution
+│   ├── debug.php               # Defensive 404 endpoint (diagnostics are not public)
 │   └── assets/
 │       ├── css/
 │       │   ├── main.css        # Compiled stylesheet
@@ -115,6 +115,54 @@ A lightweight, public, read-only PHP interface for managing pedagogical librarie
 
 ## Production Deployment
 
+### Application profiles
+
+Each deployment can expose the library, the monitored quiz module, or both.
+Set the profile in `app/Config/branding.php`:
+
+```php
+'app_mode' => 'hybrid', // library | quiz | hybrid
+'quiz' => [
+    'enabled' => true,
+    'show_admin_link' => true,
+],
+```
+
+- `library`: the library stays at `/`; all `/quiz` and `/quiz-admin` routes return 404.
+- `quiz`: the student join page is served at `/` and remains available at `/quiz`; library, sync and pedagogical resource routes return 404.
+- `hybrid`: preserves the historical behavior, with the library at `/` and quiz at `/quiz`.
+
+Existing `branding.php` files without these keys automatically use `hybrid` with
+quiz enabled. Set `quiz.enabled` to `false` as an emergency stop. On a quiz-only
+deployment this makes `/` return a neutral 503 response and hides all quiz
+subroutes.
+
+Point the production document root at `public/` whenever the host allows it. The
+repository-root fallback remains supported, but relies on the root `.htaccess`
+to deny direct access to `app/`, `storage/`, `content/` and `.git/`. Detailed PHP
+errors are hidden by default; set `APP_ENV=development` only in a local
+development environment.
+
+`robots.txt` and `sitemap.xml` are generated through the same PHP front
+controller for both supported document roots. Set `public_base_url` to the
+deployment origin, for example `https://courses.example.org`; this validated
+value is required for SEO endpoints in production and takes priority over
+request headers. A missing or invalid value makes only `robots.txt` and
+`sitemap.xml` return a neutral 503. Strict `Host` fallback is limited to
+`APP_ENV=development` and `APP_ENV=testing`. `X-Forwarded-Proto` is ignored
+unless `trust_forwarded_proto=true` and the request comes from an IP explicitly
+listed in `trusted_proxy_ips`. The old hard-coded `ple-sansfrontieres.org`
+sitemap is no longer shipped.
+
+Search indexing follows a homepage-only policy. The canonical library homepage
+is indexable in `library` and `hybrid` profiles when `public_base_url` is valid.
+All internal pages, quiz and administration routes, raw pedagogical resources,
+downloads, and PDF responses (including partial `206` previews) send an
+`X-Robots-Tag: noindex` response header. The sitemap contains only the homepage;
+in the `quiz` profile it remains empty. Do not add public pedagogical URLs to
+`robots.txt`: crawlers must be able to read their `noindex` response. Direct
+access to private filesystem directories remains blocked independently.
+
 ### On Shared Hosting (IONOS, OVH, O2Switch, etc.)
 
 1. **Upload project files:**
@@ -139,9 +187,14 @@ A lightweight, public, read-only PHP interface for managing pedagogical librarie
 
 5. **Set file permissions:**
    ```bash
-   chmod 755 content/           # Directory readable by web server
-   chmod 644 storage/           # Allow logs to be written
+   chmod 755 content/           # Directory traversable/readable by web server
+   chmod 750 storage/           # Use when the web-server user owns the directory
    ```
+
+   `storage/` is a directory, so it needs execute permission for traversal and
+   write permission for the PHP user or group. Never apply a file-only mode such
+   as `644` to this directory. Depending on the hosting account ownership model,
+   `chmod 700 storage/` or `chmod 770 storage/` may be more appropriate.
 
 ### Document Root Fallback (.htaccess)
 
@@ -304,7 +357,7 @@ Supported out-of-the-box:
 - **Check:** Does the file exist in `/content`?
 - **Check permissions:** Ensure `/content` is readable by web server (755)
 - **Check naming:** Avoid leading/trailing spaces in filenames
-- **Debug:** Visit `/debug?path=FOLDERNAME` to see path resolution details
+- **Logs:** Inspect the server-side PHP error log; `/debug` is intentionally disabled and returns 404
 
 ### Missing branding
 - **Solution:** Copy `branding.example.php` to `branding.php` and edit it
@@ -381,7 +434,28 @@ Users must enter a password on first visit. Cookie expires after 7 days.
 | `/{path}+download` | GET | Download file or folder as ZIP |
 | `/{path}+open` | GET | Force inline preview (no download dialog) |
 | `/sync` | GET/POST | Google Drive sync (if enabled) |
-| `/debug` | GET | Path resolution debugging tool |
+
+## Tests
+
+The standalone test suite covers profile normalization, the complete route
+matrix, legacy configuration, real content fixtures and both supported document
+roots using PHP's built-in HTTP server:
+
+```bash
+php tests/ApplicationProfileTest.php
+php tests/ApplicationRouterTest.php
+php tests/PublicUrlResolverTest.php
+php tests/RouteIntegrationTest.php
+php tests/WebServerRulesTest.php
+```
+
+PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
+therefore verifies the presence and ordering of every sensitive Apache rule when
+Apache is unavailable. If an Apache binary is detected, the test requires two
+real test deployments and will not silently fall back to static checks. Provide
+their base URLs with `PLE_APACHE_PUBLIC_URL` and
+`PLE_APACHE_REPOSITORY_URL`; the test then verifies both document roots and the
+direct-access denials against Apache itself.
 
 ## License
 

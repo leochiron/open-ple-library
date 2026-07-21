@@ -17,6 +17,45 @@ Ce guide explique comment personnaliser l'apparence visuelle de votre site PLE L
 
 ## Configuration Détaillée
 
+### Profil de déploiement
+
+Le même code peut exposer uniquement la bibliothèque, uniquement les quiz,
+ou les deux fonctions :
+
+```php
+'app_mode' => 'hybrid', // library | quiz | hybrid
+'quiz' => [
+    'enabled' => true,
+    'show_admin_link' => true,
+],
+'public_base_url' => 'https://courses.example.org',
+'trust_forwarded_proto' => false,
+'trusted_proxy_ips' => [],
+```
+
+- `library` conserve la bibliothèque et ferme les routes quiz ;
+- `quiz` place l'accès élève à la racine et ferme la bibliothèque ;
+- `hybrid` conserve la bibliothèque à la racine et le quiz sous `/quiz` ;
+- `quiz.enabled=false` coupe immédiatement toutes les routes quiz.
+
+Une ancienne configuration qui ne contient pas ces clés reste automatiquement
+en mode `hybrid`, avec le module quiz actif : aucune migration de configuration
+n'est nécessaire.
+
+`public_base_url` fixe l'origine publique utilisée par `robots.txt` et le
+sitemap. Sa valeur doit contenir uniquement `http://` ou `https://`, un nom
+d'hôte ou une adresse IP, et un port facultatif. Aucun chemin, identifiant,
+query string ou fragment n'est accepté. Cette clé est obligatoire en
+production pour servir `robots.txt` et `sitemap.xml`. Si elle manque ou est
+invalide, ces deux endpoints répondent 503 sans bloquer la bibliothèque ou le
+quiz.
+
+Le repli sur `Host` n'existe qu'avec `APP_ENV=development` ou `APP_ENV=testing` :
+l'application valide alors strictement l'hôte et déduit HTTPS depuis le serveur.
+`X-Forwarded-Proto` est ignoré par défaut. Pour l'utiliser derrière un reverse
+proxy de développement, activez `trust_forwarded_proto` et listez chaque adresse
+IP de proxy autorisée dans `trusted_proxy_ips`.
+
 ### 1. Identité du Site
 
 ```php

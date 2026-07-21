@@ -2,42 +2,84 @@
 
 declare(strict_types=1);
 
-// TEMP: verbose error display for debugging. Remove or disable after diagnosis.
 error_reporting(E_ALL);
 // Suppress deprecation warnings from google/apiclient v2.0 (compatible with PHP 8.1+)
 error_reporting(error_reporting() & ~E_DEPRECATED & ~E_USER_DEPRECATED);
-ini_set('display_errors', '1');
+$isDevelopment = getenv('APP_ENV') === 'development';
+ini_set('display_errors', $isDevelopment ? '1' : '0');
 ini_set('log_errors', '1');
-ini_set('error_log', __DIR__ . '/../storage/php-error.log');
-
-// Load Composer autoload for external libraries (Google API client, etc.)
-$vendorAutoload = __DIR__ . '/../vendor/autoload.php';
-if (is_file($vendorAutoload)) {
-    require $vendorAutoload;
+$runtimeStorage = __DIR__ . '/../storage';
+$runtimeLog = $runtimeStorage . '/php-error.log';
+if (is_dir($runtimeStorage)
+    && is_writable($runtimeStorage)
+    && (!is_file($runtimeLog) || is_writable($runtimeLog))) {
+    ini_set('error_log', $runtimeLog);
+} else {
+    // An empty destination delegates logging to the active SAPI logger.
+    ini_set('error_log', '');
 }
 
-// Serve favicon to avoid 404 in environments without static file mapping.
+$renderIncident = static function (Throwable $exception, string $context, int $status = 500) use ($isDevelopment): void {
+    static $responseSent = false;
+    if ($responseSent) {
+        return;
+    }
+    $responseSent = true;
+
+    try {
+        $incidentId = bin2hex(random_bytes(6));
+    } catch (Throwable $randomFailure) {
+        $incidentId = str_replace('.', '', uniqid('fallback', true));
+    }
+
+    error_log(sprintf(
+        '[incident:%s] %s: %s: %s in %s:%d',
+        $incidentId,
+        $context,
+        get_class($exception),
+        $exception->getMessage(),
+        $exception->getFile(),
+        $exception->getLine()
+    ));
+
+    if (!headers_sent()) {
+        http_response_code($status);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-store');
+        header('X-Robots-Tag: noindex');
+    }
+    if ($isDevelopment) {
+        echo 'Application error. Incident: ' . $incidentId . "\n";
+        echo get_class($exception) . ': ' . $exception->getMessage();
+        return;
+    }
+    echo 'Service temporarily unavailable. Incident: ' . $incidentId;
+};
+
+set_exception_handler(static function (Throwable $exception) use ($renderIncident): void {
+    $renderIncident($exception, 'Unhandled application failure');
+});
+register_shutdown_function(static function () use ($renderIncident): void {
+    $error = error_get_last();
+    if (!is_array($error) || !in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
+        return;
+    }
+    $renderIncident(
+        new ErrorException($error['message'], 0, $error['type'], $error['file'], $error['line']),
+        'Fatal application failure'
+    );
+});
+
 $reqUri = $_SERVER['REQUEST_URI'] ?? '';
-if (strpos($reqUri, 'favicon.ico') !== false) {
+$earlyPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
+$earlyPath = preg_replace('#^/index\.php(?=/|$)#', '', $earlyPath) ?: '/';
+
+// Serve the exact favicon path in environments without static file mapping.
+if ($earlyPath === '/favicon.ico') {
     $favicon = base64_decode('AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAGAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAAAAA==');
     header('Content-Type: image/x-icon');
     header('Content-Length: ' . strlen($favicon));
     echo $favicon;
-    exit;
-}
-
-// Keep SEO files public even when password protection is enabled.
-$requestPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
-$normalizedRequestPath = preg_replace('#^/index\.php#', '', $requestPath) ?: '/';
-$seoPath = '/' . ltrim($normalizedRequestPath, '/');
-
-if (preg_match('#/robots\.txt$#', $seoPath) === 1) {
-    serveRobotsTxt();
-    exit;
-}
-
-if (preg_match('#/sitemap\.xml$#', $seoPath) === 1) {
-    serveSitemapXml();
     exit;
 }
 
@@ -47,10 +89,13 @@ use App\Controllers\QuizAdminController;
 use App\Controllers\QuizController;
 use App\Controllers\SyncController;
 use App\Services\AuthService;
+use App\Services\ApplicationProfile;
+use App\Services\ApplicationRouter;
 use App\Services\FileSystemService;
 use App\Services\GoogleDriveService;
 use App\Services\I18nService;
 use App\Services\MimeService;
+use App\Services\PublicUrlResolver;
 use App\Services\SecurityService;
 use App\Services\ZipService;
 
@@ -70,61 +115,134 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
-require __DIR__ . '/../app/Helpers/view.php';
-require __DIR__ . '/../app/Helpers/url.php';
-require __DIR__ . '/../app/Helpers/markdown.php';
-
-$config = require __DIR__ . '/../app/Config/config.php';
-$translations = require __DIR__ . '/../app/Config/i18n.php';
-
-// If Google Drive is enabled but Google Client is unavailable, disable gracefully
-if (!class_exists('Google_Client')) {
-    if (!empty($config['branding']['google_drive_enabled'])) {
-        error_log('Google Drive disabled: composer autoload or google/apiclient not available.');
-        $config['branding']['google_drive_enabled'] = false;
+try {
+    $config = require __DIR__ . '/../app/Config/config.php';
+    $translations = require __DIR__ . '/../app/Config/i18n.php';
+    if (!is_array($config) || !isset($config['branding']) || !is_array($config['branding']) || !is_array($translations)) {
+        throw new UnexpectedValueException('Application configuration files must return arrays.');
     }
+    $applicationProfile = ApplicationProfile::fromBranding($config['branding']);
+    $applicationRouter = new ApplicationRouter($applicationProfile);
+    $routeCategory = $applicationRouter->classify($_SERVER['REQUEST_URI'] ?? '/');
+} catch (Throwable $exception) {
+    $renderIncident($exception, 'Application bootstrap failure', 503);
+    exit;
 }
 
-// Ensure content directory exists to avoid runtime errors on first deploy.
-if (!is_dir($config['content_path'])) {
-    mkdir($config['content_path'], 0755, true);
+// Keep canonical SEO files public even when library password protection is enabled.
+if ($earlyPath === '/robots.txt' || $earlyPath === '/sitemap.xml') {
+    try {
+        $publicBaseUrl = PublicUrlResolver::fromConfig($config)->resolve($_SERVER);
+    } catch (Throwable $exception) {
+        $renderIncident($exception, 'Public URL bootstrap failure', 503);
+        exit;
+    }
+
+    if ($earlyPath === '/robots.txt') {
+        serveRobotsTxt($publicBaseUrl);
+    } else {
+        serveSitemapXml($publicBaseUrl, $applicationProfile->libraryEnabled());
+    }
+    exit;
 }
 
-$security = new SecurityService($config['content_path']);
-$fileSystem = new FileSystemService($config['content_path'], $security);
-$mime = new MimeService();
-$zip = new ZipService();
-$i18n = new I18nService($config, $translations);
-$i18n->detectLanguage();
-$auth = new AuthService($config['branding']);
-$googleDrive = new GoogleDriveService($config);
+// Every dynamic response is private to search engines unless the library
+// controller explicitly confirms a canonical public homepage.
+header('X-Robots-Tag: noindex');
+
+$config['seo_canonical_homepage'] = null;
+try {
+    $config['seo_canonical_homepage'] = PublicUrlResolver::fromConfig($config)->configuredBaseUrl();
+} catch (Throwable $exception) {
+    error_log('Canonical homepage configuration ignored: ' . $exception->getMessage());
+}
+
+if ($routeCategory === ApplicationRouter::MAINTENANCE) {
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Service temporarily unavailable.';
+    exit;
+}
+
+if ($routeCategory === ApplicationRouter::UNAVAILABLE
+    || $routeCategory === ApplicationRouter::DIAGNOSTIC
+    || $routeCategory === ApplicationRouter::PUBLIC_RESOURCE) {
+    http_response_code(404);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Not found';
+    exit;
+}
+
+try {
+    require __DIR__ . '/../app/Helpers/view.php';
+    require __DIR__ . '/../app/Helpers/url.php';
+    // Session and translations are shared by the library and quiz modules.
+    if (session_status() === PHP_SESSION_NONE && !session_start()) {
+        throw new RuntimeException('Unable to start the application session.');
+    }
+    $i18n = new I18nService($config, $translations);
+    $i18n->detectLanguage();
+} catch (Throwable $exception) {
+    $renderIncident($exception, 'Shared service bootstrap failure');
+    exit;
+}
 
 // ============================================================
 // QUIZ MODULE ROUTES (own authentication: room PIN + personal
 // code for students, dedicated password for the teacher admin —
 // independent from the optional library password)
 // ============================================================
-$quizPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-$quizPath = preg_replace('#^/index\.php#', '', $quizPath) ?: '/';
-if ($quizPath === '/quiz' || strpos($quizPath, '/quiz/') === 0
-    || $quizPath === '/quiz-admin' || strpos($quizPath, '/quiz-admin/') === 0) {
+if ($routeCategory === ApplicationRouter::QUIZ || $routeCategory === ApplicationRouter::QUIZ_ADMIN) {
     try {
         $quizStorage = __DIR__ . '/../storage';
         $quizDb = new App\Services\QuizDbService($quizStorage);
         $quizService = new App\Services\QuizService($quizDb, $config, $quizStorage);
+        $quizPath = ApplicationRouter::normalizePath($_SERVER['REQUEST_URI'] ?? '/');
 
-        if (strpos($quizPath, '/quiz-admin') === 0) {
+        if ($routeCategory === ApplicationRouter::QUIZ_ADMIN) {
             (new QuizAdminController($quizService, $i18n, $config))
                 ->handle(substr($quizPath, strlen('/quiz-admin')));
         } else {
+            // In quiz-only mode, / is an alias for the canonical /quiz entry.
+            $quizSubPath = $quizPath === '/' ? '' : substr($quizPath, strlen('/quiz'));
             (new QuizController($quizService, $i18n, $config))
-                ->handle(substr($quizPath, strlen('/quiz')));
+                ->handle($quizSubPath);
         }
     } catch (Throwable $e) {
-        http_response_code(500);
-        echo 'Quiz module error.';
-        error_log('Quiz bootstrap error: ' . $e->getMessage() . ' | ' . $e->getFile() . ':' . $e->getLine());
+        $renderIncident($e, 'Quiz module bootstrap failure');
     }
+    exit;
+}
+
+// Library services are initialized only after the top-level feature gate.
+// This prevents quiz-only requests from creating content/ or loading Drive.
+try {
+    require __DIR__ . '/../app/Helpers/markdown.php';
+    $vendorAutoload = __DIR__ . '/../vendor/autoload.php';
+    if (is_file($vendorAutoload)) {
+        require $vendorAutoload;
+    }
+    if (!class_exists('Google_Client') && !empty($config['branding']['google_drive_enabled'])) {
+        error_log('Google Drive disabled: composer autoload or google/apiclient not available.');
+        $config['branding']['google_drive_enabled'] = false;
+    }
+    if (!isset($config['content_path']) || !is_string($config['content_path']) || $config['content_path'] === '') {
+        throw new UnexpectedValueException('The content path is not configured.');
+    }
+    if (!is_dir($config['content_path'])
+        && !mkdir($config['content_path'], 0755, true)
+        && !is_dir($config['content_path'])) {
+        throw new RuntimeException('Unable to create the content directory.');
+    }
+
+    $security = new SecurityService($config['content_path']);
+    $fileSystem = new FileSystemService($config['content_path'], $security);
+    $mime = new MimeService();
+    $zip = new ZipService();
+    $auth = new AuthService($config['branding']);
+    $googleDrive = new GoogleDriveService($config);
+} catch (Throwable $exception) {
+    $renderIncident($exception, 'Library service bootstrap failure');
     exit;
 }
 
@@ -185,19 +303,12 @@ $errorController = new ErrorController($i18n, $config);
 $libraryController = new LibraryController($fileSystem, $mime, $security, $i18n, $config);
 $syncController = new SyncController($googleDrive, $i18n, $config);
 
-// ============================================================
-// HANDLE /DEBUG ROUTE (diagnostic page)
-// ============================================================
 $requestUri = $_SERVER['REQUEST_URI'] ?? '';
-if (strpos($requestUri, '/debug') === 0 || strpos($requestUri, 'index.php/debug') !== false) {
-    require __DIR__ . '/debug.php';
-    exit;
-}
 
 // ============================================================
 // HANDLE /SYNC ROUTE BEFORE TRY-CATCH (to prevent HTML error pages)
 // ============================================================
-if (strpos($requestUri, '/sync') === 0 || strpos($requestUri, 'index.php/sync') !== false) {
+if ($routeCategory === ApplicationRouter::SYNC) {
     try {
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Set JSON headers for POST (sync execution)
@@ -445,21 +556,7 @@ function serveInline(FileSystemService $fs, SecurityService $security, MimeServi
     readfile($absolute);
 }
 
-function detectBaseUrl(): string
-{
-    $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
-    if ($forwardedProto !== '') {
-        $scheme = trim(explode(',', $forwardedProto)[0]) === 'https' ? 'https' : 'http';
-    } else {
-        $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
-        $scheme = $isHttps ? 'https' : 'http';
-    }
-
-    $host = $_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost');
-    return $scheme . '://' . $host;
-}
-
-function serveRobotsTxt(): void
+function serveRobotsTxt(string $publicBaseUrl): void
 {
     header('Content-Type: text/plain; charset=utf-8');
 
@@ -472,7 +569,7 @@ function serveRobotsTxt(): void
         }
     }
 
-    $sitemapLine = 'Sitemap: ' . detectBaseUrl() . '/sitemap.xml';
+    $sitemapLine = 'Sitemap: ' . $publicBaseUrl . '/sitemap.xml';
     if ($content === '') {
         $content = "User-agent: *\nAllow: /\n\n" . $sitemapLine;
     } elseif (!preg_match('/^Sitemap:/mi', $content)) {
@@ -482,20 +579,17 @@ function serveRobotsTxt(): void
     echo $content . "\n";
 }
 
-function serveSitemapXml(): void
+function serveSitemapXml(string $publicBaseUrl, bool $includeHomepage): void
 {
     header('Content-Type: application/xml; charset=utf-8');
 
-    $homepage = htmlspecialchars(detectBaseUrl() . '/', ENT_QUOTES | ENT_XML1, 'UTF-8');
-    $lastmod = gmdate('Y-m-d\TH:i:s\Z');
-
     echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
     echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
-    echo "  <url>\n";
-    echo "    <loc>{$homepage}</loc>\n";
-    echo "    <lastmod>{$lastmod}</lastmod>\n";
-    echo "    <changefreq>weekly</changefreq>\n";
-    echo "    <priority>1.0</priority>\n";
-    echo "  </url>\n";
+    if ($includeHomepage) {
+        $homepage = htmlspecialchars($publicBaseUrl . '/', ENT_QUOTES | ENT_XML1, 'UTF-8');
+        echo "  <url>\n";
+        echo "    <loc>{$homepage}</loc>\n";
+        echo "  </url>\n";
+    }
     echo "</urlset>\n";
 }

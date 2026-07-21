@@ -24,6 +24,8 @@ $cookieConsentJsPath = $docRoot !== '' ? $docRoot . $assetBase . '/js/cookie-con
 $cookieConsentJsVersion = file_exists($cookieConsentJsPath) ? filemtime($cookieConsentJsPath) : time();
 $cssHref = $assetBase . '/css/main.css?v=' . $cssVersion;
 $styleDebug = isset($_GET['style_debug']) && (string)$_GET['style_debug'] === '1';
+$seoIndexable = isset($seoIndexable) && $seoIndexable === true;
+$canonicalUrl = isset($canonicalUrl) && is_string($canonicalUrl) && $canonicalUrl !== '' ? $canonicalUrl : null;
 
 // Resolve logo path so it works whether assets are under /assets or /public/assets
 $siteLogo = $config['branding']['site_logo'] ?? '';
@@ -76,6 +78,10 @@ if ($headerBrandMode === 'auto') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="<?php echo $seoIndexable ? 'index,follow' : 'noindex'; ?>">
+    <?php if ($seoIndexable && $canonicalUrl !== null): ?>
+    <link rel="canonical" href="<?php echo htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8'); ?>">
+    <?php endif; ?>
     <?php
         $metaDescription = $config['branding']['meta_description'] ?? null;
         if (!$metaDescription) {
