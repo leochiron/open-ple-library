@@ -56,6 +56,7 @@ return [
 
         // Quiz module — student side
         'quiz.join.title' => 'Rejoindre un quiz',
+        'quiz.join.admin_link' => 'Administration',
         'quiz.join.pin_label' => 'Code de la salle (affiché au tableau)',
         'quiz.join.code_label' => 'Votre code personnel',
         'quiz.join.consent' => "J'ai lu les règles ci-dessus et je comprends que mes sorties de page sont enregistrées pendant le quiz.",
@@ -291,6 +292,7 @@ return [
 
         // Quiz module — student side
         'quiz.join.title' => 'Join a quiz',
+        'quiz.join.admin_link' => 'Administration',
         'quiz.join.pin_label' => 'Room code (displayed on the board)',
         'quiz.join.code_label' => 'Your personal code',
         'quiz.join.consent' => 'I have read the rules above and I understand that leaving the page is recorded during the quiz.',

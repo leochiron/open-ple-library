@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
-// Serve favicon early when docroot is repository root and no static mapping exists.
 $reqUri = $_SERVER['REQUEST_URI'] ?? '';
-if (strpos($reqUri, 'favicon.ico') !== false) {
+$earlyPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
+$earlyPath = preg_replace('#^/index\.php(?=/|$)#', '', $earlyPath) ?: '/';
+
+// Serve the exact favicon path when docroot is the repository root.
+if ($earlyPath === '/favicon.ico') {
 	$favicon = base64_decode('AAABAAEAEBAAAAEAIABoBAAAFgAAACgAAAAQAAAAIAAAAAEAGAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAD///8A////////AAAAAA==');
 	header('Content-Type: image/x-icon');
 	header('Content-Length: ' . strlen($favicon));
@@ -12,26 +15,36 @@ if (strpos($reqUri, 'favicon.ico') !== false) {
 	exit;
 }
 
-// Keep SEO files public when requests hit the repository root shim.
-$requestPath = parse_url($reqUri, PHP_URL_PATH) ?: '/';
-$normalizedRequestPath = preg_replace('#^/index\.php#', '', $requestPath) ?: '/';
-$seoPath = '/' . ltrim($normalizedRequestPath, '/');
-if (preg_match('#/robots\.txt$#', $seoPath) === 1) {
-	$robotsPath = __DIR__ . '/robots.txt';
-	if (is_file($robotsPath)) {
-		header('Content-Type: text/plain; charset=utf-8');
-		readfile($robotsPath);
-		exit;
-	}
-}
-if (preg_match('#/sitemap\.xml$#', $seoPath) === 1) {
-	$sitemapPath = __DIR__ . '/public/sitemap.xml';
-	if (is_file($sitemapPath)) {
-		header('Content-Type: application/xml; charset=utf-8');
-		readfile($sitemapPath);
-		exit;
-	}
+// Front controller shim so the project works when the hosting document root is the repository root.
+$frontController = __DIR__ . '/public/index.php';
+if (!is_file($frontController) || !is_readable($frontController)) {
+	$incidentId = str_replace('.', '', uniqid('bootstrap', true));
+	error_log('[incident:' . $incidentId . '] Repository shim cannot read public/index.php');
+	http_response_code(503);
+	header('Content-Type: text/plain; charset=utf-8');
+	header('Cache-Control: no-store');
+	header('X-Robots-Tag: noindex');
+	echo 'Service temporarily unavailable. Incident: ' . $incidentId;
+	exit;
 }
 
-// Front controller shim so the project works when the hosting document root is the repository root.
-require __DIR__ . '/public/index.php';
+try {
+	require $frontController;
+} catch (Throwable $exception) {
+	$incidentId = str_replace('.', '', uniqid('bootstrap', true));
+	error_log(sprintf(
+		'[incident:%s] Repository shim bootstrap failure: %s: %s in %s:%d',
+		$incidentId,
+		get_class($exception),
+		$exception->getMessage(),
+		$exception->getFile(),
+		$exception->getLine()
+	));
+	if (!headers_sent()) {
+		http_response_code(500);
+		header('Content-Type: text/plain; charset=utf-8');
+		header('Cache-Control: no-store');
+		header('X-Robots-Tag: noindex');
+	}
+	echo 'Service temporarily unavailable. Incident: ' . $incidentId;
+}

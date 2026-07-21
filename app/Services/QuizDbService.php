@@ -28,6 +28,7 @@ class QuizDbService
         $this->pdo = new PDO('sqlite:' . $storagePath . DIRECTORY_SEPARATOR . 'quiz.db');
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        $this->pdo->exec('PRAGMA foreign_keys = ON');
         // Better concurrency for simultaneous student heartbeats
         $this->pdo->exec('PRAGMA journal_mode = WAL');
         $this->pdo->exec('PRAGMA busy_timeout = 5000');
@@ -60,6 +61,19 @@ CREATE TABLE IF NOT EXISTS quiz_sessions (
     started_at TEXT,
     closed_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS admin_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('super_admin', 'quiz_admin')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+    must_change_password INTEGER NOT NULL DEFAULT 1,
+    last_login_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS quiz_students (
@@ -103,6 +117,7 @@ CREATE TABLE IF NOT EXISTS quiz_events (
 CREATE INDEX IF NOT EXISTS idx_quiz_students_session ON quiz_students(session_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_attempts_session ON quiz_attempts(session_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_events_attempt ON quiz_events(attempt_id);
+CREATE INDEX IF NOT EXISTS idx_admin_users_status ON admin_users(status);
 SQL);
 
         // Migrations for databases created before these columns existed
@@ -112,6 +127,11 @@ SQL);
         $this->ensureColumn('quiz_students', 'email', 'TEXT');
         $this->ensureColumn('quiz_students', 'code_email_sent_at', 'TEXT');
         $this->ensureColumn('quiz_attempts', 'finished_at', 'TEXT');
+        // Nullable during the migration so an existing installation can start.
+        // QuizAdminAuthService assigns every orphaned session to the first
+        // super-administrator as soon as that account is bootstrapped.
+        $this->ensureColumn('quiz_sessions', 'owner_admin_id', 'INTEGER REFERENCES admin_users(id)');
+        $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_quiz_sessions_owner ON quiz_sessions(owner_admin_id)');
     }
 
     private function ensureColumn(string $table, string $column, string $definition): void

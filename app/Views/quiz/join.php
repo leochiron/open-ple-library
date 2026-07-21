@@ -7,6 +7,14 @@ declare(strict_types=1);
 ?>
 <link rel="stylesheet" href="<?php echo htmlspecialchars(assetBase(), ENT_QUOTES, 'UTF-8'); ?>/css/quiz.css">
 
+<?php if (($config['branding']['quiz']['show_admin_link'] ?? true) === true): ?>
+    <nav class="quiz-entry-actions" aria-label="<?php echo htmlspecialchars($i18n->t('quiz.join.admin_link'), ENT_QUOTES, 'UTF-8'); ?>">
+        <a href="/quiz-admin" class="btn ghost quiz-admin-link">
+            <?php echo htmlspecialchars($i18n->t('quiz.join.admin_link'), ENT_QUOTES, 'UTF-8'); ?>
+        </a>
+    </nav>
+<?php endif; ?>
+
 <section class="card quiz-join-card">
     <header class="card-header">
         <h1><?php echo htmlspecialchars($i18n->t('quiz.join.title'), ENT_QUOTES, 'UTF-8'); ?></h1>

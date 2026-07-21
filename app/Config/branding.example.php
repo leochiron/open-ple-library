@@ -11,6 +11,23 @@ declare(strict_types=1);
  */
 
 return [
+    // Deployment profile. Existing installations without these keys keep the
+    // historical hybrid behavior (library at /, quiz at /quiz).
+    'app_mode' => 'hybrid', // library | quiz | hybrid
+    'quiz' => [
+        'enabled' => true,          // Emergency switch for every quiz route
+        'show_admin_link' => true,  // Link displayed on the student join page
+        'bootstrap_admin_email' => 'admin@example.org',
+        'bootstrap_admin_name' => 'Site administrator',
+    ],
+    // Canonical public origin used in robots.txt, sitemap.xml and generated
+    // links. Required for SEO endpoints in production; no path, query or credentials.
+    'public_base_url' => null, // e.g. 'https://courses.example.org'
+    // Forwarded protocol headers are ignored unless both this switch is true
+    // and REMOTE_ADDR exactly matches one of these proxy IP addresses.
+    'trust_forwarded_proto' => false,
+    'trusted_proxy_ips' => [], // e.g. ['127.0.0.1', '10.0.0.10']
+
     // Site identity
     'site_name' => 'My PLE Library',
     'site_logo' => '/assets/images/logo.png',  // Path to your logo file
