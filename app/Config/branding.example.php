@@ -17,6 +17,8 @@ return [
     'quiz' => [
         'enabled' => true,          // Emergency switch for every quiz route
         'show_admin_link' => true,  // Link displayed on the student join page
+        'bootstrap_admin_email' => 'admin@example.org',
+        'bootstrap_admin_name' => 'Site administrator',
     ],
     // Canonical public origin used in robots.txt, sitemap.xml and generated
     // links. Required for SEO endpoints in production; no path, query or credentials.

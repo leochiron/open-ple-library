@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 /** @var string $error */
+/** @var string $csrfToken */
 /** @var App\Services\I18nService $i18n */
 ?>
 <link rel="stylesheet" href="<?php echo htmlspecialchars(assetBase(), ENT_QUOTES, 'UTF-8'); ?>/css/quiz.css">
@@ -16,6 +17,11 @@ declare(strict_types=1);
             <p class="quiz-error" role="alert"><?php echo htmlspecialchars($error, ENT_QUOTES, 'UTF-8'); ?></p>
         <?php endif; ?>
         <form method="post" action="/quiz-admin/login" class="quiz-join-form">
+            <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
+            <div class="quiz-field">
+                <label for="admin-email">Adresse électronique</label>
+                <input type="email" id="admin-email" name="admin_email" required class="quiz-input" autocomplete="username" autofocus>
+            </div>
             <div class="quiz-field">
                 <label for="admin-password"><?php echo htmlspecialchars($i18n->t('auth.password_label'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <input type="password" id="admin-password" name="admin_password" required class="quiz-input" autocomplete="current-password">

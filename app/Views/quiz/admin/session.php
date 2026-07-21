@@ -7,6 +7,9 @@ declare(strict_types=1);
 /** @var array $attempts */
 /** @var array $recentEvents */
 /** @var string $flash */
+/** @var string $csrfToken */
+/** @var array $admin */
+/** @var array $admins */
 /** @var App\Services\I18nService $i18n */
 
 $stateLabels = [
@@ -55,12 +58,14 @@ $sid = (int)$session['id'];
         <div class="quiz-admin-actions">
             <?php if (in_array($session['state'], ['armed', 'closed'], true)): ?>
                 <form method="post" action="/quiz-admin/session/open">
+                    <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="id" value="<?php echo $sid; ?>">
                     <button type="submit" class="btn primary"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_open'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </form>
             <?php endif; ?>
             <?php if ($session['state'] === 'lobby'): ?>
                 <form method="post" action="/quiz-admin/session/launch">
+                    <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="id" value="<?php echo $sid; ?>">
                     <button type="submit" class="btn primary"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_launch'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </form>
@@ -68,10 +73,12 @@ $sid = (int)$session['id'];
             <?php if ($session['state'] === 'running'): ?>
                 <form method="post" action="/quiz-admin/session/launch"
                       onsubmit="return confirm('<?php echo htmlspecialchars($i18n->t('quiz.admin.action_relaunch_confirm'), ENT_QUOTES, 'UTF-8'); ?>');">
+                    <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="id" value="<?php echo $sid; ?>">
                     <button type="submit" class="btn primary"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_relaunch'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </form>
                 <form method="post" action="/quiz-admin/session/stop">
+                    <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="id" value="<?php echo $sid; ?>">
                     <button type="submit" class="btn ghost"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_stop'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </form>
@@ -79,6 +86,7 @@ $sid = (int)$session['id'];
             <?php if (in_array($session['state'], ['lobby', 'running'], true)): ?>
                 <form method="post" action="/quiz-admin/session/reset"
                       onsubmit="return confirm('<?php echo htmlspecialchars($i18n->t('quiz.admin.action_reset_confirm'), ENT_QUOTES, 'UTF-8'); ?>');">
+                    <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="id" value="<?php echo $sid; ?>">
                     <button type="submit" class="btn ghost">🔄 <?php echo htmlspecialchars($i18n->t('quiz.admin.action_reset'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </form>
@@ -86,6 +94,7 @@ $sid = (int)$session['id'];
             <?php if (in_array($session['state'], ['lobby', 'running'], true)): ?>
                 <form method="post" action="/quiz-admin/session/close"
                       onsubmit="return confirm('<?php echo htmlspecialchars($i18n->t('quiz.admin.action_close_confirm'), ENT_QUOTES, 'UTF-8'); ?>');">
+                    <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                     <input type="hidden" name="id" value="<?php echo $sid; ?>">
                     <button type="submit" class="btn ghost"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_close'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </form>
@@ -96,10 +105,29 @@ $sid = (int)$session['id'];
             <a class="btn ghost" href="/quiz-admin"><?php echo htmlspecialchars($i18n->t('nav.back'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
 
+        <?php if ($admin['role'] === 'super_admin'): ?>
+            <form method="post" action="/quiz-admin/session/transfer" class="quiz-admin-actions" style="margin-top:12px;">
+                <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
+                <input type="hidden" name="id" value="<?php echo $sid; ?>">
+                <label for="session-owner">Propriétaire</label>
+                <select id="session-owner" name="owner_admin_id" class="quiz-input quiz-input--inline">
+                    <?php foreach ($admins as $candidate): ?>
+                        <?php if ($candidate['status'] === 'active'): ?>
+                            <option value="<?php echo (int)$candidate['id']; ?>" <?php echo (int)$candidate['id'] === (int)$session['owner_admin_id'] ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($candidate['display_name'] . ' — ' . $candidate['email'], ENT_QUOTES, 'UTF-8'); ?>
+                            </option>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </select>
+                <button type="submit" class="btn ghost">Transférer</button>
+            </form>
+        <?php endif; ?>
+
         <details class="quiz-tuto" style="margin-top: 18px;">
             <summary>⚙️ <?php echo htmlspecialchars($i18n->t('quiz.admin.edit_title'), ENT_QUOTES, 'UTF-8'); ?></summary>
             <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.admin.edit_hint'), ENT_QUOTES, 'UTF-8'); ?></p>
             <form method="post" action="/quiz-admin/session/update" class="quiz-admin-form">
+                <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="id" value="<?php echo $sid; ?>">
                 <div class="quiz-field quiz-field--full">
                     <label for="qe-title"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_title'), ENT_QUOTES, 'UTF-8'); ?></label>
@@ -212,6 +240,7 @@ $sid = (int)$session['id'];
     <div class="card-body">
         <?php if (count($students) > 0): ?>
             <form method="post" action="/quiz-admin/students/update">
+                <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="id" value="<?php echo $sid; ?>">
                 <table class="quiz-table">
                     <thead>
@@ -257,12 +286,14 @@ $sid = (int)$session['id'];
 
             <form method="post" action="/quiz-admin/email-codes" style="margin-top: 12px;"
                   onsubmit="return confirm('<?php echo htmlspecialchars($i18n->t('quiz.admin.email_confirm'), ENT_QUOTES, 'UTF-8'); ?>');">
+                <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="id" value="<?php echo $sid; ?>">
                 <button type="submit" class="btn primary">✉️ <?php echo htmlspecialchars($i18n->t('quiz.admin.email_send'), ENT_QUOTES, 'UTF-8'); ?></button>
             </form>
         <?php endif; ?>
 
         <form method="post" action="/quiz-admin/roster" class="quiz-join-form" style="margin-top: 16px;" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
             <input type="hidden" name="id" value="<?php echo $sid; ?>">
             <div class="quiz-field">
                 <label for="qa-roster-add"><?php echo htmlspecialchars($i18n->t('quiz.admin.roster_add'), ENT_QUOTES, 'UTF-8'); ?></label>
