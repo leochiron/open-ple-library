@@ -20,6 +20,7 @@
     var HEARTBEAT_MS = 10000;
     var POLL_LOBBY_MS = 3000;
     var POLL_RUNNING_MS = 15000;
+    var PERMISSION_GUARD_MS = 500;
 
     var currentState = cfg.state.state;
     var serverOffset = 0; // serverNow - clientNow, recomputed on each poll
@@ -32,6 +33,7 @@
     var accessAllowed = cfg.state.access_allowed !== false;
     var pollSequence = 0;
     var settingsRevision = -1, permissionDeadline = null;
+    function strengthened(mode) { return mode === 'preflight' || mode === 'continuous'; }
     function boundUrl(url) { return url + (url.indexOf('?') === -1 ? '?' : '&') + 'attempt_id=' + cfg.attemptId + (cfg.roomEpoch ? '&room_epoch=' + encodeURIComponent(cfg.roomEpoch) : ''); }
 
     var els = {
@@ -76,6 +78,7 @@
         },
         onDetached: function () {
             detached = true;
+            if (preflight) { preflight.stop(); }
             [els.exam, els.lobby, els.closed, els.finished, els.completion, els.accessUnavailable, els.fsGate, els.timeover, els.awayWarning].forEach(hide);
         },
         onConflict: poll
@@ -83,6 +86,9 @@
     journal.setGeneration(cfg.state.tracking_generation);
     var preflight = window.QuizTrackingPreflight ? window.QuizTrackingPreflight({
         config: cfg,
+        isFinished: function () { return finished; },
+        isCompletionPending: function () { return completionPending; },
+        isDetached: function () { return detached; },
         onDecisionRequest: function () { return ++pollSequence; },
         onState: function (state, elapsed, sequence) {
             if (sequence !== pollSequence) { return false; }
@@ -106,10 +112,11 @@
         if (typeof state.access_allowed === 'boolean') { accessAllowed = state.access_allowed; }
         if (state.tracking_generation) { journal.setGeneration(state.tracking_generation); }
         applyRules(state);
-        if (cfg.state.tracking_mode === 'preflight' && typeof state.access_allowed === 'boolean') {
+        if (strengthened(cfg.state.tracking_mode) && typeof state.access_allowed === 'boolean') {
             if (!state.access_allowed) { permissionDeadline = null; }
             else if (typeof state.access_until === 'number' && typeof state.server_now === 'number') {
-                permissionDeadline = performance.now() + Math.max(0, (state.access_until - state.server_now) * 1000 - (elapsed || 0));
+                // server_now is integer seconds. Reserve quantization and the next guard tick.
+                permissionDeadline = performance.now() + Math.max(0, (state.access_until - state.server_now) * 1000 - (elapsed || 0) - 1000 - PERMISSION_GUARD_MS);
             }
             // A completion ACK without timing cannot clear/extend the current permission lease.
             else if (permissionDeadline === null) { accessAllowed = false; }
@@ -289,7 +296,7 @@
 
     function tickTimer() {
         if (detached) { hide(els.timeover); return; }
-        if (cfg.state.tracking_mode === 'preflight' && accessAllowed && permissionDeadline !== null && performance.now() >= permissionDeadline) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
+        if (strengthened(cfg.state.tracking_mode) && accessAllowed && permissionDeadline !== null && performance.now() >= permissionDeadline) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
         if (!els.timer) {
             return;
         }
@@ -454,7 +461,7 @@
         if (!els.fsGate) {
             return;
         }
-        var needGate = cfg.state.tracking_mode !== 'preflight' && !detached && accessAllowed && requireFullscreen && currentState === 'running' && !finished && !isFullscreen();
+        var needGate = !strengthened(cfg.state.tracking_mode) && !detached && accessAllowed && requireFullscreen && currentState === 'running' && !finished && !isFullscreen();
         els.fsGate.hidden = !needGate;
     }
 
@@ -492,7 +499,7 @@
         var aborter = new AbortController();
         var timeout = setTimeout(function () { aborter.abort(); }, 12000);
         var completionPayload = journal.explicitPayload(type, 'page');
-        var strengthenedCompletion = cfg.state.tracking_mode === 'preflight';
+        var strengthenedCompletion = strengthened(cfg.state.tracking_mode);
         var sequence = ++pollSequence;
         fetch(boundUrl(cfg.endpoints.event), {
             method: 'POST', credentials: 'same-origin', signal: aborter.signal,
@@ -503,7 +510,7 @@
             if (!r.ok) { throw new Error('completion_not_saved'); }
             return r.json();
         }).then(function (result) {
-            if ((strengthenedCompletion || cfg.state.tracking_mode === 'preflight') && sequence !== pollSequence) {
+            if ((strengthenedCompletion || strengthened(cfg.state.tracking_mode)) && sequence !== pollSequence) {
                 completionPending = false;
                 statusEl.textContent = '';
                 // The mutation may have succeeded; only a fresh state may now reconcile it.
@@ -511,7 +518,7 @@
                 return;
             }
             // Historical mode keeps its explicit completion acknowledgement behavior.
-            if (!strengthenedCompletion && cfg.state.tracking_mode !== 'preflight') { ++pollSequence; }
+            if (!strengthenedCompletion && !strengthened(cfg.state.tracking_mode)) { ++pollSequence; }
             if (result.access_allowed === false) {
                 completionPending = false;
                 statusEl.textContent = '';
@@ -570,5 +577,5 @@
     scheduleNextPoll();
     heartbeat();
     setInterval(heartbeat, HEARTBEAT_MS);
-    setInterval(tickTimer, 500);
+    setInterval(tickTimer, PERMISSION_GUARD_MS);
 })();

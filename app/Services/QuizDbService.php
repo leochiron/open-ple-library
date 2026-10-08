@@ -230,6 +230,17 @@ SQL);
         $this->ensureColumn('quiz_sessions', 'history_revision', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_sessions', 'tracking_mode', "TEXT NOT NULL DEFAULT 'off'");
         $this->ensureColumn('quiz_sessions', 'settings_revision', 'INTEGER NOT NULL DEFAULT 0');
+        $this->ensureColumn('quiz_tracking_challenges', 'kind', "TEXT NOT NULL DEFAULT 'preflight'");
+        $this->ensureColumn('quiz_tracking_challenges', 'purpose', "TEXT NOT NULL DEFAULT 'preflight'");
+        $this->ensureColumn('quiz_tracking_challenges', 'proof_incarnation', 'TEXT');
+        $this->ensureColumn('quiz_tracking_challenges', 'proof_status_at_issue', 'TEXT');
+        $this->ensureColumn('quiz_tracking_challenges', 'fullscreen_required', 'INTEGER NOT NULL DEFAULT 0');
+        foreach (['last_pulse_at', 'last_pulse_checks_json', 'last_pulse_outcome', 'pulse_failure_checks_json'] as $column) {
+            $this->ensureColumn('quiz_tracking_contexts', $column, 'TEXT');
+        }
+        $this->ensureColumn('quiz_tracking_contexts', 'last_pulse_until', 'INTEGER');
+        $this->ensureColumn('quiz_tracking_contexts', 'last_pulse_fullscreen_required', 'INTEGER');
+        $this->ensureColumn('quiz_tracking_contexts', 'pulse_failure_fullscreen_required', 'INTEGER');
         foreach (['event_uid', 'absence_uid', 'source', 'related_event_uid', 'tracking_generation'] as $column) {
             $this->ensureColumn('quiz_events', $column, 'TEXT');
         }

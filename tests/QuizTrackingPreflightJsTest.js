@@ -115,8 +115,8 @@ async function oldEpisodeAndGuard() {
     h.submit(); await flush();
     assert.equal(h.elements.get('quiz-iframe-wrap').children[0], original, 'Admission restores the same iframe and draft');
     assert.equal(original.answer, 'Student draft');
-    h.jumpClock(-86400000); h.advance(54999); await h.tick(500);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, true, 'Monotone guard valid just before network-adjusted deadline');
+    h.jumpClock(-86400000); h.advance(53499); await h.tick(500);
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden, true, 'Monotone guard valid before network/quantization/tick-adjusted deadline');
     h.advance(1); await h.tick(500);
     assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Permission expires at60s including measured network delay, despite wall-clock change');
     const oldOff = state({ tracking_mode: 'off', settings_revision: 0, access_allowed: true }); h.setState(oldOff); await h.tick(3000);
@@ -174,7 +174,8 @@ async function completionLeaseAndOrder() {
     assert.equal(late.elements.get('quiz-finished').hidden, false, 'A stale resume did not overwrite the newer declared-finish state');
 }
 
-(async () => {
+if (require.main === module) { (async () => {
     await gesturesAndProbe(); await registrationThrows(); await diagnosticLatch(); await oldEpisodeAndGuard(); await lobbyGeneration(); await staleDiagnosticReply(); await completionLeaseAndOrder();
     process.stdout.write('QuizTrackingPreflightJsTest: OK (fresh probes/false timeout/real return/ordinary queue/guard/iframe/generations)\n');
-})().catch(error => { console.error(error); process.exitCode = 1; });
+})().catch(error => { console.error(error); process.exitCode = 1; }); }
+module.exports = { setup };
