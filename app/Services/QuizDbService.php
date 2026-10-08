@@ -121,6 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_users_status ON admin_users(status);
 SQL);
 
         // Migrations for databases created before these columns existed
+        $this->ensureColumn('quiz_sessions', 'google_form_edit_url', "TEXT NOT NULL DEFAULT ''");
         $this->ensureColumn('quiz_sessions', 'require_fullscreen', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_sessions', 'reload_is_incident', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_events', 'excused', 'INTEGER NOT NULL DEFAULT 0');

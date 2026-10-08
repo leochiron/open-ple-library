@@ -345,7 +345,12 @@ class QuizAdminController
         $id = (int)($_POST['id'] ?? 0);
         $session = $this->quiz->getSession($id);
         if ($session !== null) {
-            $this->quiz->importRoster($id, $this->rosterInput());
+            try {
+                $this->quiz->importRoster($id, $this->rosterInput());
+            } catch (RuntimeException $e) {
+                header('Location: /quiz-admin/session?id=' . $id . '&flash=' . rawurlencode($e->getMessage()));
+                return;
+            }
         }
         header('Location: /quiz-admin/session?id=' . $id);
         exit;
