@@ -128,6 +128,8 @@ class QuizAdminController
                 $this->changeTechnicalOverride($subPath === '/access/override/grant');
             } elseif ($subPath === '/tracking/mode' && $method === 'POST') {
                 $this->changeTrackingMode();
+            } elseif ($subPath === '/browser/policy' && $method === 'POST') {
+                $this->changeBrowserPolicy();
             } elseif ($subPath === '/report' && $method === 'GET') {
                 $this->integrityReport();
             } elseif ($subPath === '/board' && $method === 'GET') {
@@ -333,6 +335,7 @@ class QuizAdminController
             'attempt' => $attempt,
             'events' => $this->quiz->listEventsForAttempt($id),
             'trackingContexts' => $this->quiz->getTrackingContexts((int)$session['id'],$id,(int)($_GET['tracking_before']??0)),
+            'browserPolicy' => $this->quiz->getBrowserPolicy((int)$session['id']),
             'csrfToken' => $this->csrfToken(),
         ], $this->i18n, $this->config);
     }
@@ -446,6 +449,7 @@ class QuizAdminController
             'audit' => $this->quiz->listAudit((int)$session['id'], (int)($_GET['audit_before'] ?? 0)),
             'technicalOverrides' => $this->quiz->listTechnicalOverrides((int)$session['id'], null, (int)($_GET['override_before'] ?? 0)),
             'trackingDiagnostics' => $this->quiz->listTrackingDiagnostics((int)$session['id'],(int)($_GET['tracking_before']??0)),
+            'browserDiagnostics' => $this->quiz->listBrowserDiagnostics((int)$session['id'],(int)($_GET['browser_before']??0)),
         ], $this->i18n, $this->config);
     }
 
@@ -458,6 +462,7 @@ class QuizAdminController
         $events = array_reverse($archive['snapshot']['events']);
         $accessContext = $archive['snapshot']['access_context'] ?? null;
         $trackingPolicy = $archive['snapshot']['tracking_policy'] ?? null;
+        $browserPolicy = $archive['snapshot']['browser_policy'] ?? null;
         $trackingContexts = isset($archive['snapshot']['tracking_contexts']) ? ['rows' => $archive['snapshot']['tracking_contexts'], 'next_before' => null] : null;
         $i18n = $this->i18n;
         include __DIR__ . '/../Views/quiz/admin/report.php';
@@ -523,6 +528,7 @@ class QuizAdminController
         $events = $this->quiz->listEventsForAttempt($id);
         $accessContext = $this->quiz->getStudentAccess((int)$session['id'], (int)$attempt['student_id']);
         $trackingPolicy = ['mode' => $session['tracking_mode'], 'settings_revision' => (int)$session['settings_revision']];
+        $browserPolicy = $this->quiz->getBrowserPolicy((int)$session['id']);
         $trackingContexts = $this->quiz->getTrackingContexts((int)$session['id'], $id, (int)($_GET['tracking_before'] ?? 0));
         $i18n = $this->i18n;
         // Standalone printable page, outside the site layout
@@ -698,7 +704,16 @@ class QuizAdminController
         $sid=$_POST['id']??null;$revision=$_POST['settings_revision']??null;
         if(!is_string($sid)||!ctype_digit($sid)||(int)$sid<1||!is_string($revision)||!ctype_digit($revision)||!is_string($_POST['mode']??null)||!is_string($_POST['reason']??null)){http_response_code(400);echo htmlspecialchars($this->i18n->t('quiz.tracking.invalid'),ENT_QUOTES,'UTF-8');return;}
         try{$this->quiz->setTrackingMode((int)$sid,$_POST['mode'],(int)$revision,$_POST['reason']);$flash=$this->i18n->t('quiz.tracking.saved');}
-        catch(RuntimeException $e){if(!in_array($e->getMessage(),['invalid_tracking_mode','invalid_access_reason','settings_revision_mismatch','tracking_mode_unchanged'],true)){throw $e;}$flash=$this->i18n->t('quiz.tracking.invalid');}
+        catch(RuntimeException $e){if(!in_array($e->getMessage(),['invalid_tracking_mode','invalid_access_reason','settings_revision_mismatch','tracking_mode_unchanged','browser_requires_tracking'],true)){throw $e;}$flash=$this->i18n->t('quiz.tracking.invalid');}
+        header('Location: /quiz-admin/session?id='.(int)$sid.'&flash='.urlencode($flash));exit;
+    }
+
+    private function changeBrowserPolicy(): void
+    {
+        $sid=$_POST['id']??null;$revision=$_POST['settings_revision']??null;$enabled=$_POST['enabled']??null;$families=$_POST['families']??null;
+        if(!is_string($sid)||!ctype_digit($sid)||(int)$sid<1||!is_string($revision)||!ctype_digit($revision)||!in_array($enabled,['0','1'],true)||!is_array($families)||!is_string($_POST['reason']??null)){http_response_code(400);echo htmlspecialchars($this->i18n->t('quiz.browser.invalid'),ENT_QUOTES,'UTF-8');return;}
+        try{$this->quiz->setBrowserPolicy((int)$sid,$enabled==='1',$families,(int)$revision,$_POST['reason']);$flash=$this->i18n->t('quiz.browser.saved');}
+        catch(RuntimeException $e){if(!in_array($e->getMessage(),['invalid_browser_policy','invalid_access_reason','settings_revision_mismatch','browser_policy_unchanged','browser_requires_tracking'],true)){throw $e;}$flash=$this->i18n->t('quiz.browser.invalid');}
         header('Location: /quiz-admin/session?id='.(int)$sid.'&flash='.urlencode($flash));exit;
     }
 

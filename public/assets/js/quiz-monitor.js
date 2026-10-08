@@ -35,6 +35,25 @@
     var settingsRevision = -1, permissionDeadline = null;
     function strengthened(mode) { return mode === 'preflight' || mode === 'continuous'; }
     function boundUrl(url) { return url + (url.indexOf('?') === -1 ? '?' : '&') + 'attempt_id=' + cfg.attemptId + (cfg.roomEpoch ? '&room_epoch=' + encodeURIComponent(cfg.roomEpoch) : ''); }
+    function clock() { try { var value = performance.now(); return Number.isFinite(value) ? value : null; } catch (ignored) { return null; } }
+    function elapsed(started) { var end = clock(); return started === null || end === null ? Infinity : Math.max(0, end - started); }
+    function visibility() { try { return document.visibilityState; } catch (ignored) { return null; } }
+    function focus() { try { var value = document.hasFocus(); return typeof value === 'boolean' ? value : null; } catch (ignored) { return null; } }
+    function listen(target, type, handler, capture) { try { target.addEventListener(type, handler, capture); } catch (ignored) {} }
+    function request(url, init) {
+        var aborter = null, timeout;
+        try { aborter = new AbortController(); } catch (ignored) {}
+        return new Promise(function (resolve, reject) {
+            timeout = setTimeout(function () { try { if (aborter) { aborter.abort(); } } catch (ignored) {} reject(new Error('access_unavailable')); }, 12000);
+            try {
+                var transport = Object.assign({}, init);
+                try { if (aborter) { transport.signal = aborter.signal; } } catch (ignored) {}
+                Promise.resolve(fetch(url, transport)).then(function (response) {
+                    return Promise.resolve(response.json()).then(function (value) { return { response: response, value: value }; });
+                }).then(resolve, reject);
+            } catch (ignored) { reject(new Error('access_unavailable')); }
+        }).finally(function () { clearTimeout(timeout); });
+    }
 
     var els = {
         lobby: document.getElementById('quiz-lobby'),
@@ -112,15 +131,19 @@
         if (typeof state.access_allowed === 'boolean') { accessAllowed = state.access_allowed; }
         if (state.tracking_generation) { journal.setGeneration(state.tracking_generation); }
         applyRules(state);
-        if (strengthened(cfg.state.tracking_mode) && typeof state.access_allowed === 'boolean') {
-            if (!state.access_allowed) { permissionDeadline = null; }
-            else if (typeof state.access_until === 'number' && typeof state.server_now === 'number') {
-                // server_now is integer seconds. Reserve quantization and the next guard tick.
-                permissionDeadline = performance.now() + Math.max(0, (state.access_until - state.server_now) * 1000 - (elapsed || 0) - 1000 - PERMISSION_GUARD_MS);
+        if (strengthened(cfg.state.tracking_mode)) {
+            var tick = clock();
+            if (tick === null || (elapsed !== undefined && !Number.isFinite(elapsed))) { accessAllowed = false; permissionDeadline = null; }
+            else if (typeof state.access_allowed === 'boolean') {
+                if (!state.access_allowed) { permissionDeadline = null; }
+                else if (typeof state.access_until === 'number' && typeof state.server_now === 'number') {
+                    // server_now is integer seconds. Reserve quantization and the next guard tick.
+                    permissionDeadline = tick + Math.max(0, (state.access_until - state.server_now) * 1000 - (elapsed || 0) - 1000 - PERMISSION_GUARD_MS);
+                }
+                // A completion ACK without timing cannot clear/extend the current permission lease.
+                else if (permissionDeadline === null) { accessAllowed = false; }
+                if (state.access_allowed && permissionDeadline !== null && permissionDeadline <= tick) { accessAllowed = false; }
             }
-            // A completion ACK without timing cannot clear/extend the current permission lease.
-            else if (permissionDeadline === null) { accessAllowed = false; }
-            if (state.access_allowed && permissionDeadline !== null && permissionDeadline <= performance.now()) { accessAllowed = false; }
         } else if (cfg.state.tracking_mode === 'off') { permissionDeadline = null; }
         if (preflight) { preflight.update(Object.assign({}, cfg.state, { access_allowed: accessAllowed })); }
         if (typeof state.server_now === 'number') {
@@ -254,16 +277,17 @@
     function poll() {
         if (detached) { return; }
         var sequence = ++pollSequence;
-        var started = performance.now();
-        fetch(boundUrl(cfg.endpoints.state), { credentials: 'same-origin' })
-            .then(function (r) {
+        var started = clock();
+        request(boundUrl(cfg.endpoints.state), { credentials: 'same-origin' })
+            .then(function (result) {
+                var r = result.response;
                 if (sequence !== pollSequence) { return null; }
                 if (r.status === 409 || r.status === 401 || r.status === 403) { journal.detach(); return null; }
-                return r.json();
+                return result.value;
             })
             .then(function (state) {
                 if (sequence === pollSequence && state && state.state) {
-                    applyState(state, Math.max(0, performance.now() - started));
+                    applyState(state, elapsed(started));
                 }
             })
             .catch(function () { /* transient network error: keep last state */ })
@@ -282,7 +306,7 @@
 
     function heartbeat() {
         if (detached) { return; }
-        fetch(boundUrl(cfg.endpoints.heartbeat), {
+        request(boundUrl(cfg.endpoints.heartbeat), {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'X-Quiz-CSRF': cfg.csrfToken },
@@ -296,7 +320,8 @@
 
     function tickTimer() {
         if (detached) { hide(els.timeover); return; }
-        if (strengthened(cfg.state.tracking_mode) && accessAllowed && permissionDeadline !== null && performance.now() >= permissionDeadline) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
+        var tick = clock();
+        if (strengthened(cfg.state.tracking_mode) && accessAllowed && (tick === null || permissionDeadline === null || tick >= permissionDeadline)) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
         if (!els.timer) {
             return;
         }
@@ -345,20 +370,21 @@
         warningTimeout = setTimeout(function () { hide(els.awayWarning); }, 6000);
     }
 
-    document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'hidden') {
+    listen(document, 'visibilitychange', function () {
+        if (visibility() === 'hidden') {
             markAway('hidden');
-        } else {
+        } else if (visibility() === 'visible') {
             markBack('hidden');
-            if (document.hasFocus()) { markBack('blur'); }
+            if (focus() === true) { markBack('blur'); }
         }
     });
 
-    window.addEventListener('blur', function () {
+    listen(window, 'blur', function () {
         // Clicking into the Google Form iframe blurs the parent window:
         // that is normal exam activity, not an exit.
         setTimeout(function () {
-            var active = document.activeElement;
+            var active;
+            try { active = document.activeElement; } catch (ignored) { return; }
             if (active && active.id === 'quiz-form-iframe') {
                 return;
             }
@@ -366,11 +392,11 @@
         }, 0);
     });
 
-    window.addEventListener('focus', function () {
-        if (document.visibilityState === 'visible') { markBack('blur'); }
+    listen(window, 'focus', function () {
+        if (visibility() === 'visible') { markBack('blur'); }
     });
 
-    window.addEventListener('pagehide', function () {
+    listen(window, 'pagehide', function () {
         if (currentState === 'running' && !finished) {
             sendEvent('leave');
         }
@@ -385,12 +411,13 @@
         if (currentState !== 'running' || finished) {
             return;
         }
-        if (document.visibilityState === 'hidden') {
+        if (visibility() !== 'visible') {
             return; // already handled by visibilitychange
         }
-        if (!document.hasFocus()) {
+        var focused = focus();
+        if (focused === false) {
             markAway('blur');
-        } else {
+        } else if (focused === true) {
             markBack('blur');
         }
     }, 1000);
@@ -413,7 +440,7 @@
         showAwayWarning(cfg.i18n.keyWarning);
     }
 
-    document.addEventListener('keydown', function (ev) {
+    listen(document, 'keydown', function (ev) {
         if (currentState !== 'running' || finished) {
             return;
         }
@@ -443,9 +470,9 @@
     }, true);
 
     // Context-menu copy/paste does not go through keydown
-    document.addEventListener('copy', function () { if (currentState === 'running' && !finished) { reportKey('copy'); } });
-    document.addEventListener('cut', function () { if (currentState === 'running' && !finished) { reportKey('copy'); } });
-    document.addEventListener('paste', function () { if (currentState === 'running' && !finished) { reportKey('paste'); } });
+    listen(document, 'copy', function () { if (currentState === 'running' && !finished) { reportKey('copy'); } });
+    listen(document, 'cut', function () { if (currentState === 'running' && !finished) { reportKey('copy'); } });
+    listen(document, 'paste', function () { if (currentState === 'running' && !finished) { reportKey('paste'); } });
 
     // ------------------------------------------------------------------
     // Mandatory fullscreen (per-session rule)
@@ -454,7 +481,7 @@
     var requireFullscreen = !!cfg.requireFullscreen;
 
     function isFullscreen() {
-        return !!(document.fullscreenElement || document.webkitFullscreenElement);
+        try { return !!(document.fullscreenElement || document.webkitFullscreenElement); } catch (ignored) { return null; }
     }
 
     function updateFullscreenGate() {
@@ -466,23 +493,20 @@
     }
 
     if (els.fsBtn) {
-        els.fsBtn.addEventListener('click', function () {
-            var el = document.documentElement;
-            var fn = el.requestFullscreen || el.webkitRequestFullscreen;
-            if (fn) {
-                try { fn.call(el); } catch (e) { /* denied: gate stays */ }
-            }
+        listen(els.fsBtn, 'click', function () {
+            try { var el = document.documentElement; var fn = el.requestFullscreen || el.webkitRequestFullscreen; if (fn) { var promise = fn.call(el); if (promise && promise.catch) { promise.catch(function () {}); } } } catch (ignored) {}
         });
 
         var onFsChange = function () {
             if (currentState === 'running' && !finished && !detached) {
-                if (isFullscreen()) { markBack('fullscreen_exit'); }
-                else { markAway('fullscreen_exit'); }
+                var fullscreen = isFullscreen();
+                if (fullscreen === true) { markBack('fullscreen_exit'); }
+                else if (fullscreen === false) { markAway('fullscreen_exit'); }
             } else { journal.discard('fullscreen_exit'); }
             updateFullscreenGate();
         };
-        document.addEventListener('fullscreenchange', onFsChange);
-        document.addEventListener('webkitfullscreenchange', onFsChange);
+        listen(document, 'fullscreenchange', onFsChange);
+        listen(document, 'webkitfullscreenchange', onFsChange);
     }
 
     // ------------------------------------------------------------------
@@ -492,23 +516,23 @@
 
     function saveCompletion(type, statusEl) {
         if (completionPending || currentState !== 'running' || detached || !accessAllowed) { return; }
+        if (strengthened(cfg.state.tracking_mode) && clock() === null) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); return; }
         completionPending = true;
         els.finishBtn.disabled = true;
         els.resumeBtn.disabled = true;
         statusEl.textContent = cfg.i18n.finishPending;
-        var aborter = new AbortController();
-        var timeout = setTimeout(function () { aborter.abort(); }, 12000);
         var completionPayload = journal.explicitPayload(type, 'page');
         var strengthenedCompletion = strengthened(cfg.state.tracking_mode);
         var sequence = ++pollSequence;
-        fetch(boundUrl(cfg.endpoints.event), {
-            method: 'POST', credentials: 'same-origin', signal: aborter.signal,
+        request(boundUrl(cfg.endpoints.event), {
+            method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(Object.assign({}, completionPayload, { _csrf: cfg.csrfToken, room_epoch: cfg.roomEpoch }))
-        }).then(function (r) {
+        }).then(function (response) {
+            var r = response.response;
             if (r.status === 409 || r.status === 403) { poll(); }
             if (!r.ok) { throw new Error('completion_not_saved'); }
-            return r.json();
+            return response.value;
         }).then(function (result) {
             if ((strengthenedCompletion || strengthened(cfg.state.tracking_mode)) && sequence !== pollSequence) {
                 completionPending = false;
@@ -533,8 +557,7 @@
             journal.discard();
             statusEl.textContent = '';
             if (finished && isFullscreen()) {
-                var exitFn = document.exitFullscreen || document.webkitExitFullscreen;
-                if (exitFn) { try { exitFn.call(document); } catch (e) {} }
+                try { var exitFn = document.exitFullscreen || document.webkitExitFullscreen; if (exitFn) { var exitPromise = exitFn.call(document); if (exitPromise && exitPromise.catch) { exitPromise.catch(function () {}); } } } catch (ignored) {}
             }
             if (!finished) { els.submitConfirm.checked = false; }
             applyState({ state: currentState });
@@ -542,20 +565,19 @@
             completionPending = false;
             statusEl.textContent = accessAllowed ? cfg.i18n.finishError : '';
         }).finally(function () {
-            clearTimeout(timeout);
             els.finishBtn.disabled = !accessAllowed || completionPending || !els.submitConfirm.checked;
             els.resumeBtn.disabled = !accessAllowed || completionPending;
         });
     }
     if (els.finishBtn) {
-        els.submitConfirm.addEventListener('change', function () {
+        listen(els.submitConfirm, 'change', function () {
             els.finishBtn.disabled = !accessAllowed || completionPending || !els.submitConfirm.checked;
         });
-        els.finishBtn.addEventListener('click', function () {
+        listen(els.finishBtn, 'click', function () {
             if (finished || !els.submitConfirm.checked || currentState !== 'running') { return; }
             saveCompletion('finish', els.finishStatus);
         });
-        els.resumeBtn.addEventListener('click', function () {
+        listen(els.resumeBtn, 'click', function () {
             if (finished) { saveCompletion('resume', els.resumeStatus); }
         });
     }

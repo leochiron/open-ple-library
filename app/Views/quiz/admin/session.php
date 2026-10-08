@@ -66,6 +66,19 @@ $sid = (int)$session['id'];
                 <textarea name="reason" required maxlength="1000" placeholder="<?php echo htmlspecialchars($i18n->t('quiz.access.reason'),ENT_QUOTES,'UTF-8'); ?>"></textarea>
                 <button class="btn ghost"><?php echo htmlspecialchars($i18n->t('quiz.tracking.save'),ENT_QUOTES,'UTF-8'); ?></button>
             </form>
+            <form method="post" action="/quiz-admin/browser/policy">
+                <h3><?php echo htmlspecialchars($i18n->t('quiz.browser.title'),ENT_QUOTES,'UTF-8'); ?></h3>
+                <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.browser.hint'),ENT_QUOTES,'UTF-8'); ?></p>
+                <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken,ENT_QUOTES,'UTF-8'); ?>">
+                <input type="hidden" name="id" value="<?php echo $sid; ?>">
+                <input type="hidden" name="settings_revision" value="<?php echo (int)($session['settings_revision']??0); ?>">
+                <select name="enabled"><option value="0"<?php echo empty($session['browser_enabled'])?' selected':''; ?>><?php echo htmlspecialchars($i18n->t('quiz.browser.off'),ENT_QUOTES,'UTF-8'); ?></option><option value="1"<?php echo !empty($session['browser_enabled'])?' selected':''; ?>><?php echo htmlspecialchars($i18n->t('quiz.browser.on'),ENT_QUOTES,'UTF-8'); ?></option></select>
+                <?php $browserFamilies=json_decode($session['browser_families_json']??'["chrome","edge","firefox","safari"]',true); foreach(['chrome'=>'Chrome','edge'=>'Edge','firefox'=>'Firefox','safari'=>'Safari']as$browserFamily=>$browserLabel): ?>
+                    <label><input type="checkbox" name="families[]" value="<?php echo $browserFamily; ?>"<?php echo in_array($browserFamily,$browserFamilies,true)?' checked':''; ?>> <?php echo $browserLabel; ?></label>
+                <?php endforeach; unset($browserFamilies,$browserFamily,$browserLabel); ?>
+                <textarea name="reason" required maxlength="1000" placeholder="<?php echo htmlspecialchars($i18n->t('quiz.access.reason'),ENT_QUOTES,'UTF-8'); ?>"></textarea>
+                <button class="btn ghost"><?php echo htmlspecialchars($i18n->t('quiz.browser.save'),ENT_QUOTES,'UTF-8'); ?></button>
+            </form>
             <?php if (in_array($session['state'], ['armed', 'closed'], true)): ?>
                 <form method="post" action="/quiz-admin/session/open">
                     <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">

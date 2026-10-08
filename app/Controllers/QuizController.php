@@ -38,6 +38,7 @@ class QuizController
     public function handle(string $subPath): void
     {
         header('Cache-Control: no-store');
+        $this->quiz->setBrowserRequestUserAgent(null);
         $subPath = '/' . trim($subPath, '/');
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -136,6 +137,7 @@ class QuizController
         [$session, $attempt] = $context;
 
         $roomEpoch = $this->quiz->openTrackingRoomDocument((int)$session['id'],(int)$attempt['id']);
+        $this->quiz->setBrowserRequestUserAgent(is_string($_SERVER['HTTP_USER_AGENT']??null)?$_SERVER['HTTP_USER_AGENT']:'');
         $state = $this->quiz->prepareTrackingState((int)$session['id'],(int)$attempt['id']);
         if(QuizService::trackingStrengthened($state['tracking_mode'])){unset($state['form_url']);}
         $state['csrf_token'] = $this->csrfToken();
@@ -149,6 +151,7 @@ class QuizController
     private function apiState(): void
     {
         $context = $this->requireApiContext();
+        $this->quiz->setBrowserRequestUserAgent(is_string($_SERVER['HTTP_USER_AGENT']??null)?$_SERVER['HTTP_USER_AGENT']:'');
         [$session, $attempt] = $context;
         $this->quiz->setTrackingRequestEpoch(is_string($_GET['room_epoch']??null)?$_GET['room_epoch']:null);
         try{$state=$this->quiz->prepareTrackingState((int)$session['id'],(int)$attempt['id']);$this->json($state+['csrf_token'=>$this->csrfToken()]);}
@@ -196,6 +199,7 @@ class QuizController
 
         try {
             $this->quiz->setTrackingRequestEpoch(is_string($data['room_epoch']??null)?$data['room_epoch']:null);
+            if(in_array($type,['finish','resume'],true)){$this->quiz->setBrowserRequestUserAgent(is_string($_SERVER['HTTP_USER_AGENT']??null)?$_SERVER['HTTP_USER_AGENT']:'');}
             $metadata = array_diff_key($data, ['type' => true, 'away_seconds' => true, '_csrf' => true, 'room_epoch'=>true]);
             $result = $this->quiz->recordEvent($session, $attempt, $type, $awaySeconds, $metadata);
         } catch (\PDOException $e) {
@@ -221,17 +225,22 @@ class QuizController
     {
         $operation=$pulse?($submit?'pulse':'pulse_challenge'):($submit?'preflight':'challenge');
         $context=$this->requireApiContext();[$session,$attempt]=$context;
+        $this->quiz->setBrowserRequestUserAgent(is_string($_SERVER['HTTP_USER_AGENT']??null)?$_SERVER['HTTP_USER_AGENT']:'');
         $raw=file_get_contents('php://input',false,null,0,4097)?:'';
         $data=$raw!==''?json_decode($raw,true):$_POST;
         if(strlen($raw)>4096){$this->trackingFailure($operation,new RuntimeException('body_too_large'));return;}
         if(!is_array($data)){$this->trackingFailure($operation,new RuntimeException('schema_invalid'));return;}
         if(!$this->validCsrf($data)){$this->trackingFailure($operation,new RuntimeException('csrf_invalid'));return;}
+        $schema=$data['schema_version']??1;
         $allowed=['attempt_id','tracking_generation','room_epoch','_csrf'];if($submit){$allowed=array_merge($allowed,['schema_version','challenge','checks']);}
+        if($schema===2){$allowed=array_merge($allowed,['schema_version','browser']);}
         if(array_diff(array_keys($data),$allowed)!==[] || ($data['attempt_id']??null)!==(int)$attempt['id'] || !is_string($data['tracking_generation']??null) || !is_string($data['room_epoch']??null)){$this->trackingFailure($operation,new RuntimeException('schema_invalid'));return;}
         try{
-            if($submit){if(($data['schema_version']??null)!==1 || !is_string($data['challenge']??null)||!is_array($data['checks']??null)){throw new RuntimeException('schema_invalid');}
-                $result=$pulse?$this->quiz->submitTrackingPulse((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$data['challenge'],$data['checks']):$this->quiz->submitTrackingPreflight((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$data['challenge'],$data['checks']);
-            }else{$result=$pulse?$this->quiz->createTrackingPulseChallenge((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch']):$this->quiz->createTrackingChallenge((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch']);}
+            if(!in_array($schema,[1,2],true) || (!empty($session['browser_enabled']) && $schema!==2) || ($schema===2 && !is_array($data['browser']??null))){throw new RuntimeException('schema_invalid');}
+            $browser=$schema===2?$data['browser']:null;
+            if($submit){if(!in_array($data['schema_version']??null,[1,2],true) || !is_string($data['challenge']??null)||!is_array($data['checks']??null)){throw new RuntimeException('schema_invalid');}
+                $result=$pulse?$this->quiz->submitTrackingPulse((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$data['challenge'],$data['checks'],$browser):$this->quiz->submitTrackingPreflight((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$data['challenge'],$data['checks'],$browser);
+            }else{$result=$pulse?$this->quiz->createTrackingPulseChallenge((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$browser):$this->quiz->createTrackingChallenge((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$browser);}
             $this->json($result);
         }catch(Throwable $e){$this->trackingFailure($operation,$e);}
     }

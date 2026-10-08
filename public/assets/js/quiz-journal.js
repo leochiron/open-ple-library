@@ -14,8 +14,12 @@
             return Date.now().toString(36) + '_' + Math.random().toString(36).slice(2) + '_' + Math.random().toString(36).slice(2);
         }
         function now() {
-            lastTick = Math.max(lastTick, performance.now());
-            return lastTick;
+            try {
+                var value = performance.now();
+                if (!Number.isFinite(value)) { return null; }
+                lastTick = Math.max(lastTick, value);
+                return lastTick;
+            } catch (ignored) { return null; }
         }
         function status() {
             if (options.onStatus) { options.onStatus({ pending: queue.length, dropped: dropped, detached: detached }); }
@@ -69,13 +73,17 @@
             if (!queue.length) { status(); return; }
             busy = true;
             var item = queue[0], sentGeneration = generation;
-            var aborter = new AbortController();
-            var timeout = setTimeout(function () { aborter.abort(); }, 12000);
-            fetch(options.endpoint, {
-                method: 'POST', credentials: 'same-origin', keepalive: true,
-                signal: aborter.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(transport(item.payload))
-            }).then(function (r) {
-                return r.json().then(function (body) { return { ok: r.ok, status: r.status, body: body }; });
+            var aborter = null, timeout;
+            try { aborter = new AbortController(); } catch (ignored) {}
+            new Promise(function (resolve, reject) {
+                timeout = setTimeout(function () { try { if (aborter) { aborter.abort(); } } catch (ignored) {} reject(new Error('access_unavailable')); }, 12000);
+                try {
+                    var init = { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(transport(item.payload)) };
+                    try { if (aborter) { init.signal = aborter.signal; } } catch (ignored) {}
+                    Promise.resolve(fetch(options.endpoint, init)).then(function (r) {
+                        return Promise.resolve(r.json()).then(function (body) { return { ok: r.ok, status: r.status, body: body }; });
+                    }).then(resolve, reject);
+                } catch (ignored) { reject(new Error('access_unavailable')); }
             }).then(function (result) {
                 if (detached || generation !== sentGeneration || queue[0] !== item) { return; }
                 if (result.status === 409 || result.status === 403) {
@@ -130,15 +138,29 @@
         function start(source) {
             if (detached || !generation || sources[source]) { return; }
             if (['hidden', 'blur', 'fullscreen_exit'].indexOf(source) === -1) { return; }
+            var tick = now();
+            if (tick === null) { return; } // No fabricated departure or duration when the clock is unavailable.
             if (!episode) { episode = uid(); }
             var p = payload('away_start', source, { absence_uid: episode });
-            sources[source] = { tick: now(), uid: p.event_uid, episode: episode };
+            sources[source] = { tick: tick, uid: p.event_uid, episode: episode };
             append(p);
         }
         function end(source) {
             var started = sources[source];
             if (!started) { return; }
-            var duration = Math.min(3600000, Math.max(0, Math.floor(now() - started.tick)));
+            var tick = now();
+            if (tick === null) {
+                if (!started.unmeasured) { started.unmeasured = true; lose(1); persist(); drain(); }
+                return;
+            }
+            if (started.unmeasured) {
+                // Only a real measurable return rearms this source. Its old start stays visible,
+                // accompanied by the loss diagnostic, rather than inventing a return or duration.
+                delete sources[source];
+                if (!sources.hidden && !sources.blur) { episode = null; }
+                return;
+            }
+            var duration = Math.min(3600000, Math.max(0, Math.floor(tick - started.tick)));
             delete sources[source];
             append(payload(source, source, { absence_uid: started.episode, related_event_uid: started.uid, duration_ms: duration, away_seconds: Math.floor(duration / 1000) }));
             // A real page/window return closes that episode even if fullscreen
@@ -157,7 +179,7 @@
             }); // persisted entries stay until a later acknowledged fetch
         }
         setInterval(drain, 3000);
-        window.addEventListener('online', drain);
+        try { window.addEventListener('online', drain); } catch (ignored) {}
         return { start: start, end: end, discard: discard, observe: observe, beacon: beacon, setGeneration: setGeneration, detach: detach, explicitPayload: payload, retry: drain };
     };
 })();

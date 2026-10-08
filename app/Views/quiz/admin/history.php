@@ -67,6 +67,18 @@ $esc = static fn($value): string => htmlspecialchars((string)$value, ENT_QUOTES,
             <?php endforeach; unset($trackingDiagnostic); ?>
             <?php if ($trackingDiagnostics['next_before'] !== null): ?><a href="/quiz-admin/history?id=<?php echo $sid; ?>&amp;tracking_before=<?php echo (int)$trackingDiagnostics['next_before']; ?>"><?php echo $esc($i18n->t('quiz.history.older')); ?></a><?php endif; ?>
         <?php endif; ?>
+        <?php if(isset($browserDiagnostics)): ?>
+            <h2><?php echo $esc($i18n->t('quiz.browser.diagnostics')); ?></h2>
+            <p class="quiz-hint"><?php echo $esc($i18n->t('quiz.browser.private_hint')); ?></p>
+            <?php foreach($browserDiagnostics['rows']as$browserDiagnostic): ?>
+                <details><summary><?php echo $esc(formatParisTime($browserDiagnostic['created_at'])); ?> · <?php echo $esc(trim($browserDiagnostic['first_name'].' '.$browserDiagnostic['last_name'])); ?> · #<?php echo (int)$browserDiagnostic['attempt_id']; ?> · <?php echo $esc($browserDiagnostic['code']); ?></summary>
+                    <p><?php echo $esc($browserDiagnostic['operation'].' · '.$browserDiagnostic['tracking_generation'].' · '.$browserDiagnostic['context_ref']); ?></p>
+                    <pre><?php echo $esc(json_encode($browserDiagnostic['details'],JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT)); ?></pre>
+                </details>
+            <?php endforeach; unset($browserDiagnostic); ?>
+            <?php if($browserDiagnostics['rows']===[]): ?><p><?php echo $esc($i18n->t('quiz.history.empty')); ?></p><?php endif; ?>
+            <?php if($browserDiagnostics['next_before']!==null): ?><a href="/quiz-admin/history?id=<?php echo $sid; ?>&amp;browser_before=<?php echo (int)$browserDiagnostics['next_before']; ?>"><?php echo $esc($i18n->t('quiz.history.older')); ?></a><?php endif; ?>
+        <?php endif; ?>
         <h2><?php echo $esc($i18n->t('quiz.history.audit')); ?></h2>
         <p class="quiz-hint"><?php echo $esc($i18n->t('quiz.history.audit_hint')); ?></p>
         <?php if ($audit['rows'] === []): ?><p><?php echo $esc($i18n->t('quiz.history.empty')); ?></p>

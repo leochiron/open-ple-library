@@ -6,7 +6,7 @@ const path = require('node:path');
 const { harness, render, inlineScripts, state, flush, root } = require('./QuizLiveSettingsJsTest');
 const source = name => fs.readFileSync(path.join(root, 'public/assets/js', name), 'utf8');
 
-function setup(overrides = {}, monitor = true) {
+function setup(overrides = {}, monitor = true, configure = null) {
     const initial = state({ tracking_mode: 'preflight', settings_revision: 1, access_allowed: false, access_until: null, require_fullscreen: false, ...overrides });
     if (!initial.access_allowed) { delete initial.form_url; }
     const h = harness(render('room'), initial);
@@ -28,6 +28,7 @@ function setup(overrides = {}, monitor = true) {
         if (url === cfg.endpoints.preflight) { diagnostics.push(JSON.parse(options.body)); if (preflightReply) { return preflightReply; } h.advance(resultDelay); return { ok: true, json: async () => result }; }
         return fetchBase(url, options);
     };
+    if (configure) { configure(h, cfg); }
     h.run(source('quiz-journal.js')); h.run(source('quiz-preflight.js'));
     let preflight;
     if (monitor) { h.run(source('quiz-monitor.js')); }

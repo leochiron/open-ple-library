@@ -228,6 +228,22 @@ SQL);
         $this->ensureColumn('quiz_events', 'excused', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_sessions', 'tracking_generation', 'TEXT');
         $this->ensureColumn('quiz_sessions', 'history_revision', 'INTEGER NOT NULL DEFAULT 0');
+        $this->ensureColumn('quiz_sessions', 'browser_enabled', 'INTEGER NOT NULL DEFAULT 0');
+        $this->ensureColumn('quiz_sessions', 'browser_families_json', 'TEXT NOT NULL DEFAULT \'["chrome","edge","firefox","safari"]\'');
+        foreach (['browser_assessed_at', 'browser_incarnation', 'browser_policy_fingerprint', 'browser_canonical_json', 'browser_diagnostic_json'] as $column) { $this->ensureColumn('quiz_tracking_contexts', $column, 'TEXT'); }
+        $this->ensureColumn('quiz_tracking_contexts', 'browser_status', "TEXT NOT NULL DEFAULT 'missing'");
+        foreach (['tracking_power', 'browser_policy_fingerprint', 'browser_environment_fingerprint', 'browser_incarnation'] as $column) { $this->ensureColumn('quiz_tracking_challenges', $column, 'TEXT'); }
+        $this->ensureColumn('quiz_tracking_challenges', 'browser_power', "TEXT NOT NULL DEFAULT 'none'");
+        $this->ensureColumn('quiz_tracking_challenges', 'browser_protocol', 'INTEGER NOT NULL DEFAULT 1');
+        $this->pdo->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS quiz_browser_diagnostics (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, student_id INTEGER NOT NULL,
+ attempt_id INTEGER NOT NULL, context_ref TEXT NOT NULL, tracking_generation TEXT NOT NULL,
+ first_name TEXT NOT NULL, last_name TEXT NOT NULL, created_at TEXT NOT NULL,
+ code TEXT NOT NULL, operation TEXT NOT NULL, details_json TEXT NOT NULL, identity_truncated INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_browser_diagnostics_session ON quiz_browser_diagnostics(session_id,id);
+SQL);
         $this->ensureColumn('quiz_sessions', 'tracking_mode', "TEXT NOT NULL DEFAULT 'off'");
         $this->ensureColumn('quiz_sessions', 'settings_revision', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_tracking_challenges', 'kind', "TEXT NOT NULL DEFAULT 'preflight'");
