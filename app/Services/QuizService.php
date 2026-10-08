@@ -19,6 +19,7 @@ use Throwable;
 class QuizService
 {
     use QuizTracking;
+    use QuizBrowser;
     // Unambiguous alphabet for student codes (no 0/O, 1/I/L)
     private const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
     private const CODE_LENGTH = 5;
@@ -173,6 +174,7 @@ class QuizService
 
             $session = $this->requireSession($sessionId);
             if (!$before['require_fullscreen'] && !empty($session['require_fullscreen'])) { $this->invalidateTrackingSession($sessionId, 'fullscreen_added'); }
+            elseif ($before['require_fullscreen'] && empty($session['require_fullscreen']) && !empty($session['browser_enabled'])) { $this->invalidateBrowserSession($sessionId, 'fullscreen_changed'); }
             $this->reclassifyEvents($session);
 
             // Reclassification and every attempt count commit with the rules.
@@ -874,15 +876,23 @@ class QuizService
         return ['session_id' => $sessionId, 'student_id' => $studentId, 'attempt_id' => $attemptId, 'tracking_generation' => $generation, 'context_ref' => $ref];
     }
 
-    /** Strengthened tracking is contextual; browser checks remain reserved for6. */
+    /** Independent raw browser/tracking causes, evaluated only for the bound student document. */
     protected function currentTechnicalCauses(array $context): array
     {
-        if (!self::trackingStrengthened($this->requireSession((int)$context['session_id'])['tracking_mode'])) { return []; }
+        $session = $this->requireSession((int)$context['session_id']);
+        if (!self::trackingStrengthened($session['tracking_mode'])) { return []; }
         $stmt = $this->db->prepare('SELECT * FROM quiz_tracking_contexts WHERE context_ref=:ref'); $stmt->execute(['ref'=>$context['context_ref']]);
         $row = $stmt->fetch();
         if ($row === false || $row['status'] !== 'active') { throw new RuntimeException('cookie_context_mismatch'); }
         $row = $this->trackingExpireProof($row);
-        return [['scope'=>'tracking', 'active'=>$row['proof_status'] !== 'healthy', 'code'=>$row['proof_status'] === 'expired' ? 'proof_expired' : 'proof_'.$row['proof_status']]];
+        $row = $this->browserObserveHttp($session, $row);
+        $causes = [['scope'=>'tracking', 'active'=>$row['proof_status'] !== 'healthy', 'code'=>$row['proof_status'] === 'expired' ? 'proof_expired' : 'proof_'.$row['proof_status']]];
+        if (!empty($session['browser_enabled'])) {
+            $valid = $row['browser_status'] === 'valid' && $row['browser_policy_fingerprint'] === QuizBrowserEvaluator::policyFingerprint($this->browserPolicy($session));
+            $details = $row['browser_diagnostic_json'] !== null ? json_decode($row['browser_diagnostic_json'], true, 32, JSON_THROW_ON_ERROR) : [];
+            foreach ($valid ? [] : ($details['causes'] ?? ['browser_verification_required']) as $code) { $causes[] = ['scope' => 'browser', 'active' => true, 'code' => $code]; }
+        }
+        return $causes;
     }
 
     private function normalizeAccessReason(string $reason): string
@@ -1346,6 +1356,7 @@ class QuizService
             }
             $stmt->closeCursor();
             $this->csvTrackingRecords($out, $sessionId);
+            $this->csvBrowserRecords($out, $sessionId);
             $before = 0;
             do {
                 $page = $this->listArchives($sessionId, $before, 25);
@@ -1419,7 +1430,7 @@ class QuizService
         }
         $policy = $snapshot['tracking_policy'] ?? 'non conservé';
         $trackingMetadata = $metadata;
-        $trackingMetadata[9] = json_encode(['tracking_policy' => $policy], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $trackingMetadata[9] = json_encode(['tracking_policy' => $policy,'browser_policy'=>$snapshot['browser_policy']??'non conservé'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         $row = array_fill(0, 23, ''); $row[0] = 'archive_politique_suivi';
         $this->csvRow($out, $row, $trackingMetadata);
         foreach ($snapshot['tracking_contexts'] ?? [] as $context) {
@@ -1552,6 +1563,7 @@ class QuizService
                 'attempt' => $frozenAttempt, 'events' => $events,
                 'access_context' => $this->getStudentAccess($sid, (int)$attempt['student_id']),
                 'tracking_policy' => ['mode'=>$session['tracking_mode'], 'settings_revision'=>(int)$session['settings_revision']],
+                'browser_policy' => $this->browserPolicy($session),
                 'tracking_contexts' => $this->trackingSnapshotContexts($sid,(int)$attempt['id']),
                 'event_generations' => array_values(array_unique(array_filter(array_column($events, 'tracking_generation'), static fn($value): bool => $value !== null && $value !== '')))];
             $json = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);

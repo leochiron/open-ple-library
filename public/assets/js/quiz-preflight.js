@@ -11,14 +11,55 @@
         var enter = document.getElementById('quiz-preflight-enter');
         var fsButton = document.getElementById('quiz-preflight-fullscreen');
         var submitButton = document.getElementById('quiz-preflight-submit');
-        function fullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+        function fullscreen() { try { return !!(document.fullscreenElement || document.webkitFullscreenElement); } catch (ignored) { return false; } }
+        function visibility() { try { return document.visibilityState; } catch (ignored) { return null; } }
+        function focus() { try { return document.hasFocus() === true; } catch (ignored) { return false; } }
+        function clock() { try { var value = performance.now(); return Number.isFinite(value) ? value : null; } catch (ignored) { return null; } }
+        function elapsed(started) { var end = clock(); return started === null || end === null ? Infinity : Math.max(0, end - started); }
         function strengthened(value) { return value === 'preflight' || value === 'continuous'; }
-        function body(extra) { return Object.assign({ attempt_id: cfg.attemptId, tracking_generation: generation, room_epoch: cfg.roomEpoch, _csrf: cfg.csrfToken }, extra || {}); }
+        function declaredBrowser() {
+            function available(read) { try { return read() === true; } catch (ignored) { return false; } }
+            var ua = '', brands = null;
+            try { ua = navigator.userAgent; } catch (ignored) {}
+            try {
+                var hints = navigator.userAgentData;
+                if (hints !== undefined && hints !== null) { brands = hints.brands.map(function (item) { return { brand: item.brand, version: item.version }; }); }
+            } catch (ignored) { brands = ''; } // A failed read is invalid transport, never invented absence.
+            return { user_agent: ua, brands: brands, capabilities: {
+                event_target: available(function () { return typeof EventTarget === 'function' && typeof Event === 'function' && typeof EventTarget.prototype.addEventListener === 'function' && typeof EventTarget.prototype.removeEventListener === 'function' && typeof EventTarget.prototype.dispatchEvent === 'function'; }),
+                visibility_api: available(function () { return typeof document.hidden === 'boolean' && typeof document.visibilityState === 'string'; }),
+                focus_api: available(function () { return typeof document.hasFocus === 'function'; }),
+                fetch_api: available(function () { return typeof window.fetch === 'function'; }),
+                abort_controller: available(function () { return typeof AbortController === 'function' && typeof AbortController.prototype.abort === 'function'; }),
+                monotonic_clock: available(function () { return typeof performance.now === 'function' && Number.isFinite(performance.now()); }),
+                fullscreen: available(function () {
+                    var root = document.documentElement;
+                    var request = root.requestFullscreen || root.webkitRequestFullscreen;
+                    var exit = document.exitFullscreen || document.webkitExitFullscreen;
+                    var enabled = root.requestFullscreen ? document.fullscreenEnabled : document.webkitFullscreenEnabled;
+                    return typeof request === 'function' && typeof exit === 'function' && enabled !== false;
+                })
+            } };
+        }
+        function body(extra) { return Object.assign({ attempt_id: cfg.attemptId, tracking_generation: generation, room_epoch: cfg.roomEpoch, _csrf: cfg.csrfToken, schema_version: 2, browser: declaredBrowser() }, extra || {}); }
         function request(endpoint, data) {
-            var aborter = new AbortController(), timeout = setTimeout(function () { aborter.abort(); }, 12000);
+            var aborter = null, timeout;
+            try { aborter = new AbortController(); } catch (ignored) {}
             ++networkPending;
-            return fetch(endpoint, { method: 'POST', credentials: 'same-origin', signal: aborter.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-                .then(function (response) { if (!response.ok) { if (options.onConflict) { options.onConflict(); } throw new Error('access_unavailable'); } return response.json(); }).finally(function () {
+            // The Promise settles within12s even when abort is unavailable. Late responses never apply.
+            return new Promise(function (resolve, reject) {
+                timeout = setTimeout(function () { try { if (aborter) { aborter.abort(); } } catch (ignored) {} reject(new Error('access_unavailable')); }, 12000);
+                try {
+                    var init = { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) };
+                    try { if (aborter) { init.signal = aborter.signal; } } catch (ignored) {}
+                    Promise.resolve(fetch(endpoint, init)).then(function (response) {
+                        return Promise.resolve(response.json()).then(function (value) { return { ok: response.ok, value: value }; });
+                    }).then(resolve, reject);
+                } catch (ignored) { reject(new Error('access_unavailable')); }
+            }).then(function (result) {
+                if (!result.ok) { if (options.onConflict) { options.onConflict(); } throw new Error('access_unavailable'); }
+                return result.value;
+            }).finally(function () {
                     clearTimeout(timeout); --networkPending;
                     if (networkPending === 0 && restartAfterSettlement) { restartAfterSettlement = false; setTimeout(start, 0); }
                 });
@@ -57,11 +98,11 @@
                 listen(enter, 'keydown', function (event) { if (stage === 'collecting' && nativeEvent(event) && event.key === 'Enter') { checks.trusted_enter_received = true; } });
                 listen(document, 'visibilitychange', function (event) {
                     if (!nativeEvent(event)) { return; }
-                    if (document.visibilityState === 'hidden') { if (stage === 'collecting') { checks.hidden_received = true; blocked.hidden = true; } }
-                    else { blocked.hidden = false; if (stage === 'collecting' && checks.hidden_received) { checks.visible_after_hidden_received = true; if (document.hasFocus()) { checks.focus_after_hidden_received = true; } } }
+                    if (visibility() === 'hidden') { if (stage === 'collecting') { checks.hidden_received = true; blocked.hidden = true; } }
+                    else if (visibility() === 'visible') { blocked.hidden = false; if (stage === 'collecting' && checks.hidden_received) { checks.visible_after_hidden_received = true; if (focus()) { checks.focus_after_hidden_received = true; } } }
                 });
                 listen(window, 'blur', function (event) { if (nativeEvent(event) && stage === 'collecting') { blocked.blur = true; } });
-                listen(window, 'focus', function (event) { if (nativeEvent(event) && document.visibilityState === 'visible' && document.hasFocus()) { blocked.blur = false; if (stage === 'collecting' && checks.hidden_received) { checks.focus_after_hidden_received = true; } } });
+                listen(window, 'focus', function (event) { if (nativeEvent(event) && visibility() === 'visible' && focus()) { blocked.blur = false; if (stage === 'collecting' && checks.hidden_received) { checks.focus_after_hidden_received = true; } } });
                 var fs = function (event) { if (!nativeEvent(event)) { return; } if (fullscreen()) { blocked.fullscreen_exit = false; } else if (stage === 'collecting') { blocked.fullscreen_exit = true; } if (stage === 'collecting') { checks.fullscreen_change_received = true; checks.fullscreen_active = fullscreen(); } };
                 listen(document, 'fullscreenchange', fs); listen(document, 'webkitfullscreenchange', fs);
                 deadline = setTimeout(submit, 45000); render();
@@ -74,18 +115,18 @@
             checks.listener_roundtrip = probeListener();
             // Keep source latches until real native returns; never synthesize journal starts.
             checks.fullscreen_active = fullscreen();
-            blocked.hidden = blocked.hidden || document.visibilityState === 'hidden';
-            blocked.blur = blocked.blur || !document.hasFocus();
+            blocked.hidden = blocked.hidden || visibility() !== 'visible';
+            blocked.blur = blocked.blur || !focus();
             blocked.fullscreen_exit = blocked.fullscreen_exit || (cfg.requireFullscreen && !fullscreen());
-            stage = 'submitted'; var run = serial, started = performance.now();
+            stage = 'submitted'; var run = serial, started = clock();
             var requestOrder = options.onDecisionRequest ? options.onDecisionRequest() : null;
-            request(cfg.endpoints.preflight, body({ schema_version: 1, challenge: challenge, checks: checks })).then(function (state) {
+            request(cfg.endpoints.preflight, body({ challenge: challenge, checks: checks })).then(function (state) {
                 if (run !== serial) { return; }
                 if (options.onState) {
                     // The shared monitor accepts/rejects the response using its emission order.
-                    options.onState(state, Math.max(0, performance.now() - started), requestOrder);
+                    options.onState(state, elapsed(started), requestOrder);
                 } else {
-                    admitted = state.access_allowed === true;
+                    admitted = state.access_allowed === true && clock() !== null;
                     if (admitted) { armed = true; }
                 }
                 render();
@@ -100,19 +141,19 @@
                 if (run !== serial || mode !== 'continuous' || cfg.state.state !== 'running' || (options.isFinished ? options.isFinished() : cfg.state.finished) || (options.isCompletionPending && options.isCompletionPending())) { return; }
                 var pulseChecks = { listener_roundtrip: probeListener(), fullscreen_active: false };
                 try { pulseChecks.fullscreen_active = fullscreen(); } catch (ignored) {}
-                var started = performance.now(), order = options.onDecisionRequest ? options.onDecisionRequest() : null;
-                return request(cfg.endpoints.pulse, body({ schema_version: 1, challenge: response.challenge, checks: pulseChecks })).then(function (state) {
+                var started = clock(), order = options.onDecisionRequest ? options.onDecisionRequest() : null;
+                return request(cfg.endpoints.pulse, body({ challenge: response.challenge, checks: pulseChecks })).then(function (state) {
                     if (run !== serial) { return; }
-                    if (options.onState) { options.onState(state, Math.max(0, performance.now() - started), order); }
-                    else { admitted = state.access_allowed === true; }
+                    if (options.onState) { options.onState(state, elapsed(started), order); }
+                    else { admitted = state.access_allowed === true && clock() !== null; }
                     render();
                 });
             }).catch(function () {}).finally(function () { pulsePending = false; });
         }
         // Stable cadence: fifteen-second state polls never reset this interval.
         var pulseTimer = setInterval(pulse, 20000);
-        if (submitButton) { submitButton.addEventListener('click', submit); }
-        if (fsButton) { fsButton.addEventListener('click', function () { var target = fullscreen() ? document : document.documentElement; var action = fullscreen() ? (document.exitFullscreen || document.webkitExitFullscreen) : (target.requestFullscreen || target.webkitRequestFullscreen); if (action) { try { var promise = action.call(target); if (promise && promise.catch) { promise.catch(function () {}); } } catch (ignored) {} } }); }
+        try { if (submitButton) { submitButton.addEventListener('click', submit); } } catch (ignored) {}
+        try { if (fsButton) { fsButton.addEventListener('click', function () { try { var target = fullscreen() ? document : document.documentElement; var action = fullscreen() ? (document.exitFullscreen || document.webkitExitFullscreen) : (target.requestFullscreen || target.webkitRequestFullscreen); if (action) { var promise = action.call(target); if (promise && promise.catch) { promise.catch(function () {}); } } } catch (ignored) {} }); } } catch (ignored) {}
         return {
             update: function (state) {
                 if (unavailable()) { render(); return; }

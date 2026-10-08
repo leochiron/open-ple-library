@@ -5,6 +5,10 @@ $trackingEsc = static fn($value): string => htmlspecialchars((string)$value, ENT
 ?>
 <h3><?php echo $trackingEsc($i18n->t('quiz.preflight.private_title')); ?></h3>
 <p class="quiz-hint"><?php echo $trackingEsc($i18n->t('quiz.preflight.private_hint')); ?></p>
+<h4><?php echo $trackingEsc($i18n->t('quiz.browser.title')); ?></h4>
+<p class="quiz-hint"><?php echo $trackingEsc($i18n->t('quiz.browser.private_hint')); ?></p>
+<?php if(isset($browserPolicy)): ?><p><code><?php echo $trackingEsc(json_encode($browserPolicy,JSON_UNESCAPED_UNICODE)); ?></code></p>
+<?php else: ?><p><?php echo $trackingEsc($i18n->t('quiz.browser.not_recorded')); ?></p><?php endif; ?>
 <?php if (!isset($trackingPolicy)): ?>
     <p><?php echo $trackingEsc($i18n->t('quiz.preflight.not_recorded')); ?></p>
 <?php else: ?>
@@ -23,6 +27,9 @@ $trackingEsc = static fn($value): string => htmlspecialchars((string)$value, ENT
                 <?php endforeach; ?>
             </tbody></table>
             <p><strong><?php echo $trackingEsc($i18n->t('quiz.preflight.causes')); ?></strong> : <?php echo $trackingEsc(implode(', ', $trackingRow['causes'] ?? []) ?: '—'); ?></p>
+            <?php if(array_key_exists('browser_validation',$trackingRow)): ?><details><summary><?php echo $trackingEsc($i18n->t('quiz.browser.title')); ?> · <?php echo $trackingEsc($trackingRow['browser_validation']['status']); ?> · <?php echo $trackingEsc($trackingRow['browser_validation']['assessed_at']??'—'); ?></summary>
+                <pre><?php echo $trackingEsc(json_encode($trackingRow['browser_validation']['details'],JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT)); ?></pre></details>
+            <?php else: ?><p><?php echo $trackingEsc($i18n->t('quiz.browser.not_recorded')); ?></p><?php endif; ?>
             <?php if (is_array($trackingRow['checks'] ?? null)): ?>
                 <table class="quiz-table"><tbody><?php foreach ($trackingRow['checks'] as $trackingCheck => $trackingValue): ?>
                     <tr><th><?php echo $trackingEsc($trackingCheck); ?></th><td><?php echo $trackingValue === true ? 'true' : 'false'; ?></td></tr>

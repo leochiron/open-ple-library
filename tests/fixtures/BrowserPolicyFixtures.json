@@ -1,0 +1,1625 @@
+{
+  "schema_version": 1,
+  "purpose": "Matrice conceptuelle pour le futur parseur du lot 6 ; aucune interface du parseur applicatif n'est imposée.",
+  "contract": "SPEC_EXECUTION_QUIZ_BROWSER_DRAFT.md (8 octobre 2026)",
+  "status": "Fixtures préparées ; aucun parseur applicatif ni navigateur Firefox/Safari réel exécuté.",
+  "construction": "Les UA et versions sont synthétiques et suivent des formes documentées ; aucun numéro n'affirme une version actuellement disponible ni un minimum supporté.",
+  "merge_rule": "Chaque cas remplace les champs indiqués des defaults, sauf input.capabilities fusionné par clé avec defaults.capabilities (sept booléens complets à expansion). expected porte seulement browser, sans manual/tracking/override.",
+  "defaults": {
+    "policy": {
+      "enabled": true,
+      "allowed_families": [
+        "chrome",
+        "edge",
+        "firefox",
+        "safari"
+      ],
+      "fullscreen_required": false
+    },
+    "client_hints_optional": true,
+    "capabilities": {
+      "fullscreen": true,
+      "event_target": true,
+      "visibility_api": true,
+      "focus_api": true,
+      "fetch_api": true,
+      "abort_controller": true,
+      "monotonic_clock": true
+    }
+  },
+  "semantics": {
+    "family": "Famille déclarée dans UA, sans attestation de l'exécutable. outside_policy couvre un produit reconnu exclu ; unknown couvre une identification insuffisante.",
+    "product_major": "Premier entier positif du token produit ; Safari provient de Version, pas de Safari/605 ni AppleWebKit/605.",
+    "brands": "null représente API/indices absents ; [] représente liste vide. Chromium est une marque moteur ; aucune égalité générale moteur Chromium/produit Edge n'est imposée.",
+    "private_causes": "Concepts privés du contrat ; jamais des champs autorisés dans une réponse élève ou board.",
+    "canonical_equivalence": "Famille déclarée + majeure produit + capacités actuellement requises ; les changements de politique sont traités séparément."
+  },
+  "groups": [
+    {
+      "id": "declared_desktop_mobile_products",
+      "summary": "Familles produit déclarées et priorités des tokens, indices facultatifs.",
+      "sources": [
+        {
+          "title": "MDN — User-Agent",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent"
+        },
+        {
+          "title": "Microsoft — User-Agent guidance",
+          "url": "https://learn.microsoft.com/en-us/microsoft-edge/web-platform/user-agent-guidance"
+        },
+        {
+          "title": "MDN — Firefox User-Agent",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent/Firefox"
+        },
+        {
+          "title": "Chromium — iOS User-Agent",
+          "url": "https://chromium.googlesource.com/chromium/src/+/main/docs/ios/user_agent.md"
+        }
+      ],
+      "cases": [
+        {
+          "id": "chrome_desktop_windows",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": [
+              {
+                "brand": "Not_A Brand",
+                "version": "99"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Google Chrome",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_desktop_mac_ch_absent",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_android_reduced",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
+            "brands": [
+              {
+                "brand": "Not_A Brand",
+                "version": "99"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Google Chrome",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_ios_crios_before_safari",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/151.0.0.0 Mobile/15E148 Safari/604.1",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/151.0.0.0 Mobile/15E148 Safari/604.1",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_ios_desktop_crios_integer_before_version_safari",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 CriOS/85 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0.1 CriOS/85 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 85,
+            "client_family": "chrome",
+            "client_product_major": 85,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "note": "CriOS/85 sans point prime sur Version/14.0.1 ; aucune inférence Safari."
+        },
+        {
+          "id": "edge_desktop_before_chrome",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": [
+              {
+                "brand": "Not A(Brand",
+                "version": "99"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "edge_android_edga_before_chrome",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36 EdgA/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36 EdgA/151.0.0.0",
+            "brands": [
+              {
+                "brand": "Not A(Brand",
+                "version": "99"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "edge_ios_edgios_before_safari",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 EdgiOS/151.0.0.0 Mobile/15E148 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 EdgiOS/151.0.0.0 Mobile/15E148 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "firefox_desktop",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "firefox",
+            "http_product_major": 144,
+            "client_family": "firefox",
+            "client_product_major": 144,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "firefox_android",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Android 15; Mobile; rv:144.0) Gecko/144.0 Firefox/144.0",
+            "client_ua": "Mozilla/5.0 (Android 15; Mobile; rv:144.0) Gecko/144.0 Firefox/144.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "firefox",
+            "http_product_major": 144,
+            "client_family": "firefox",
+            "client_product_major": 144,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "firefox_ios_fxios",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/144.0 Mobile/15E148 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/144.0 Mobile/15E148 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "firefox",
+            "http_product_major": 144,
+            "client_family": "firefox",
+            "client_product_major": 144,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "firefox_ipad_declares_safari",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 13,
+            "client_family": "safari",
+            "client_product_major": 13,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "note": "Ce cas vient de la forme Safari documentée pour Firefox iPad ; le produit réel Firefox est indéterminable à partir de ces champs."
+        },
+        {
+          "id": "safari_desktop_product18_engine605",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "note": "Version/18.5 produit ; Safari/605.1.15 et AppleWebKit/605.1.15 moteur."
+        },
+        {
+          "id": "safari_ios_product18_engine604",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_truncated_integer",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151 Safari/537.36",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "edge_truncated_integer",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "firefox_truncated_integer",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "firefox",
+            "http_product_major": 144,
+            "client_family": "firefox",
+            "client_product_major": 144,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "safari_truncated_version_integer",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "explicit_outside_policy",
+      "summary": "Un moteur compatible ne requalifie pas un produit explicitement exclu.",
+      "sources": [
+        {
+          "title": "MDN — User-Agent",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent"
+        },
+        {
+          "title": "Microsoft — User-Agent guidance",
+          "url": "https://learn.microsoft.com/en-us/microsoft-edge/web-platform/user-agent-guidance"
+        }
+      ],
+      "cases": [
+        {
+          "id": "opera_opr_chrome_engine",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 OPR/117.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 OPR/117.0.0.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "outside_policy",
+            "http_product_major": 117,
+            "client_family": "outside_policy",
+            "client_product_major": 117,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_outside_policy"
+            ]
+          },
+          "note": "Produit Opera explicite ; ne pas retenir le token Chrome moteur."
+        },
+        {
+          "id": "opera_android_opr_chrome_engine",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36 OPR/117.0.0.0",
+            "client_ua": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36 OPR/117.0.0.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "outside_policy",
+            "http_product_major": 117,
+            "client_family": "outside_policy",
+            "client_product_major": 117,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_outside_policy"
+            ]
+          }
+        },
+        {
+          "id": "opera_touch_ios_opt_safari_engine",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1 OPT/5.0.0",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1 OPT/5.0.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "outside_policy",
+            "http_product_major": 5,
+            "client_family": "outside_policy",
+            "client_product_major": 5,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_outside_policy"
+            ]
+          },
+          "note": "Marqueur OPT iOS explicite."
+        },
+        {
+          "id": "legacy_edge_edgehtml_token",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edge/18.19041",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edge/18.19041",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "outside_policy",
+            "http_product_major": 18,
+            "client_family": "outside_policy",
+            "client_product_major": 18,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_outside_policy"
+            ]
+          },
+          "note": "Edge/ ancien est distinct de Edg/."
+        },
+        {
+          "id": "unknown_nonbrowser",
+          "input": {
+            "http_ua": "curl/8.0.0",
+            "client_ua": "curl/8.0.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "unknown",
+            "http_product_major": null,
+            "client_family": "unknown",
+            "client_product_major": null,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_outside_policy"
+            ]
+          }
+        },
+        {
+          "id": "safari_engine_without_version",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "unknown",
+            "http_product_major": null,
+            "client_family": "unknown",
+            "client_product_major": null,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_outside_policy"
+            ]
+          },
+          "note": "Safari/605 ne suffit pas à déterminer une majeure produit."
+        },
+        {
+          "id": "chrome_zero_major",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/0.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/0.0.0.0 Safari/537.36",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "unknown",
+            "http_product_major": null,
+            "client_family": "unknown",
+            "client_product_major": null,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_outside_policy"
+            ]
+          },
+          "note": "La politique exige une majeure produit positive."
+        }
+      ]
+    },
+    {
+      "id": "optional_client_hints_grease",
+      "summary": "Absence, ordre et marques arbitraires ne constituent pas seuls une incohérence.",
+      "sources": [
+        {
+          "title": "WICG — User-Agent Client Hints",
+          "url": "https://wicg.github.io/ua-client-hints/"
+        },
+        {
+          "title": "Chrome — User-Agent Client Hints",
+          "url": "https://developer.chrome.com/docs/privacy-security/user-agent-client-hints"
+        },
+        {
+          "title": "MDN — Navigator.userAgentData",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/API/Navigator/userAgentData"
+        },
+        {
+          "title": "Microsoft — User-Agent guidance",
+          "url": "https://learn.microsoft.com/en-us/microsoft-edge/web-platform/user-agent-guidance"
+        }
+      ],
+      "cases": [
+        {
+          "id": "chrome_ch_absent",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_ch_empty",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": [],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "edge_ch_absent",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "firefox_ch_absent",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "firefox",
+            "http_product_major": 144,
+            "client_family": "firefox",
+            "client_product_major": 144,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "safari_ch_absent",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_grease_last_permuted",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": [
+              {
+                "brand": "Google Chrome",
+                "version": "151"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Not_A Brand",
+                "version": "99"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "edge_grease_first_permuted",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": [
+              {
+                "brand": "Not-A.Brand",
+                "version": "24"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "151"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_unknown_brand_ignored",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": [
+              {
+                "brand": "Private Compatible Browser",
+                "version": "999"
+              },
+              {
+                "brand": "Google Chrome",
+                "version": "151"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "safari_unknown_brand_ignored",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "brands": [
+              {
+                "brand": "Private Compatible Browser",
+                "version": "999"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_only_chromium_brand",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": [
+              {
+                "brand": "Chromium",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "note": "UA déclare Chrome ; la marque Chromium seule n'atteste pas Google Chrome officiel."
+        },
+        {
+          "id": "edge_engine_major_different_product_major",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": [
+              {
+                "brand": "Chromium",
+                "version": "150"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "note": "Cas synthétique produit Edge151/moteur150 : comparaison Edg↔Microsoft Edge ; aucune règle générale d'égalité avec Chromium n'est justifiée."
+        },
+        {
+          "id": "edge_unknown_brand_version_unrelated",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": [
+              {
+                "brand": "Mystery Browser",
+                "version": "42"
+              },
+              {
+                "brand": "Chromium",
+                "version": "150"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "note": "Ignorer la marque inconnue et ne pas comparer sa majeure ni celle du moteur à Edg."
+        }
+      ]
+    },
+    {
+      "id": "known_contradictions",
+      "summary": "Contradictions connues de produit/famille ou de majeure entre informations présentes.",
+      "sources": [
+        {
+          "title": "MDN — User-Agent",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent"
+        },
+        {
+          "title": "Microsoft — User-Agent guidance",
+          "url": "https://learn.microsoft.com/en-us/microsoft-edge/web-platform/user-agent-guidance"
+        },
+        {
+          "title": "Chrome — User-Agent Client Hints",
+          "url": "https://developer.chrome.com/docs/privacy-security/user-agent-client-hints"
+        }
+      ],
+      "cases": [
+        {
+          "id": "http_chrome_js_edge",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "http_edge_js_chrome",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "http_firefox_js_safari",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "firefox",
+            "http_product_major": 144,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "http_chrome_js_major_changed",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 150,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "http_safari_js_product_major_changed",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 17,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "chrome_ch_google_chrome_major_mismatch",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": [
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Google Chrome",
+                "version": "150"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "edge_ch_microsoft_edge_major_mismatch",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": [
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "150"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "chrome_ch_microsoft_edge_family_mismatch",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": [
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "edge_ch_google_chrome_family_mismatch",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": [
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Google Chrome",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        },
+        {
+          "id": "firefox_ch_google_chrome_family_mismatch",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            "brands": [
+              {
+                "brand": "Google Chrome",
+                "version": "144"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "firefox",
+            "http_product_major": 144,
+            "client_family": "firefox",
+            "client_product_major": 144,
+            "browser_allowed": false,
+            "private_causes": [
+              "browser_info_inconsistent"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "minor_platform_engine_variations",
+      "summary": "Majeure produit inchangée ; les différences de mineure, d'OS et de moteur ne suffisent pas à invalider le contexte canonique.",
+      "sources": [
+        {
+          "title": "MDN — User-Agent",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent"
+        },
+        {
+          "title": "Microsoft — User-Agent guidance",
+          "url": "https://learn.microsoft.com/en-us/microsoft-edge/web-platform/user-agent-guidance"
+        },
+        {
+          "title": "WICG — User-Agent Client Hints",
+          "url": "https://wicg.github.io/ua-client-hints/"
+        }
+      ],
+      "cases": [
+        {
+          "id": "chrome_minor_http_js_different",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.1.12.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.9.99.7 Safari/537.36",
+            "brands": [
+              {
+                "brand": "Google Chrome",
+                "version": "151.5.2.3"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151.7.3.1"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "chrome_platform_http_js_different",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+            "brands": [
+              {
+                "brand": "Not_A Brand",
+                "version": "99"
+              },
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Google Chrome",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "chrome",
+            "http_product_major": 151,
+            "client_family": "chrome",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "note": "La politique décrite ne compare pas OS ou octets complets UA."
+        },
+        {
+          "id": "edge_product_minor_http_js_different",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.1.12.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.9.99.7",
+            "brands": [
+              {
+                "brand": "Chromium",
+                "version": "151"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "151.8.0.2"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "safari_engine_constant_product_minor_different",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15",
+            "client_ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "firefox_minor_http_js_different",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.4",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "firefox",
+            "http_product_major": 144,
+            "client_family": "firefox",
+            "client_product_major": 144,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "edge_engine_changed_same_product",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0",
+            "brands": [
+              {
+                "brand": "Chromium",
+                "version": "150"
+              },
+              {
+                "brand": "Microsoft Edge",
+                "version": "151"
+              }
+            ],
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "edge",
+            "http_product_major": 151,
+            "client_family": "edge",
+            "client_product_major": 151,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "note": "Produit Edg151 cohérent avec Microsoft Edge151 ; moteur Chromium n'est pas une version produit à comparer."
+        }
+      ]
+    },
+    {
+      "id": "conditional_capability_policy",
+      "summary": "Plein écran : capacité navigateur conditionnelle ; l'état courant et la réception d'événement relèvent du suivi.",
+      "sources": [
+        {
+          "title": "MDN — User-Agent",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/User-Agent"
+        },
+        {
+          "title": "MDN — Navigator.userAgentData",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/API/Navigator/userAgentData"
+        }
+      ],
+      "cases": [
+        {
+          "id": "fullscreen_optional_capability_true",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "fullscreen_optional_capability_false",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": false
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          }
+        },
+        {
+          "id": "fullscreen_required_capability_true",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "policy": {
+            "enabled": true,
+            "allowed_families": [
+              "chrome",
+              "edge",
+              "firefox",
+              "safari"
+            ],
+            "fullscreen_required": true
+          }
+        },
+        {
+          "id": "fullscreen_required_capability_false",
+          "input": {
+            "http_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "client_ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": false
+            }
+          },
+          "expected": {
+            "http_family": "safari",
+            "http_product_major": 18,
+            "client_family": "safari",
+            "client_product_major": 18,
+            "browser_allowed": false,
+            "private_causes": [
+              "required_capability_unavailable"
+            ]
+          },
+          "policy": {
+            "enabled": true,
+            "allowed_families": [
+              "chrome",
+              "edge",
+              "firefox",
+              "safari"
+            ],
+            "fullscreen_required": true
+          }
+        },
+        {
+          "id": "browser_policy_off_outside_product",
+          "input": {
+            "http_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 OPR/117.0.0.0",
+            "client_ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 OPR/117.0.0.0",
+            "brands": null,
+            "capabilities": {
+              "fullscreen": true
+            }
+          },
+          "expected": {
+            "http_family": "outside_policy",
+            "http_product_major": 117,
+            "client_family": "outside_policy",
+            "client_product_major": 117,
+            "browser_allowed": true,
+            "private_causes": []
+          },
+          "policy": {
+            "enabled": false,
+            "allowed_families": [
+              "chrome",
+              "edge",
+              "firefox",
+              "safari"
+            ],
+            "fullscreen_required": false
+          },
+          "note": "Contrôle browser désactivé : le produit reste conceptuellement identifié mais n'active aucune cause browser. Ce cas ne déroge pas à manual/tracking."
+        }
+      ]
+    }
+  ],
+  "canonical_equivalence_pairs": [
+    {
+      "a": "chrome_desktop_windows",
+      "b": "chrome_grease_last_permuted",
+      "same_canonical_environment": true,
+      "reason": "Ordre GREASE seul."
+    },
+    {
+      "a": "edge_desktop_before_chrome",
+      "b": "edge_grease_first_permuted",
+      "same_canonical_environment": true,
+      "reason": "Ordre et valeur de marque arbitraire."
+    },
+    {
+      "a": "chrome_desktop_windows",
+      "b": "chrome_unknown_brand_ignored",
+      "same_canonical_environment": true,
+      "reason": "Marque non reconnue sans contradiction de produit connu."
+    },
+    {
+      "a": "chrome_desktop_windows",
+      "b": "chrome_ch_absent",
+      "same_canonical_environment": true,
+      "reason": "Indices facultatifs absents ; famille/majeure UA inchangées."
+    },
+    {
+      "a": "chrome_desktop_windows",
+      "b": "chrome_minor_http_js_different",
+      "same_canonical_environment": true,
+      "reason": "Versions mineures non canoniques."
+    },
+    {
+      "a": "chrome_desktop_windows",
+      "b": "chrome_platform_http_js_different",
+      "same_canonical_environment": true,
+      "reason": "Plateforme non canonique."
+    },
+    {
+      "a": "edge_desktop_before_chrome",
+      "b": "edge_engine_major_different_product_major",
+      "same_canonical_environment": true,
+      "reason": "Moteur non égal à majeure produit ; seuls Edg et marque Microsoft Edge font foi pour le produit déclaré."
+    },
+    {
+      "a": "safari_desktop_product18_engine605",
+      "b": "safari_engine_constant_product_minor_different",
+      "same_canonical_environment": true,
+      "reason": "Majeure produit18 ; mineure Safari18.5/18.6 non canonique."
+    },
+    {
+      "a": "fullscreen_optional_capability_true",
+      "b": "fullscreen_optional_capability_false",
+      "same_canonical_environment": true,
+      "reason": "Capacité non requise dans ce profil."
+    },
+    {
+      "a": "fullscreen_required_capability_true",
+      "b": "fullscreen_required_capability_false",
+      "same_canonical_environment": false,
+      "reason": "Une capacité requise change."
+    },
+    {
+      "a": "fullscreen_optional_capability_true",
+      "b": "fullscreen_required_capability_true",
+      "same_canonical_environment": false,
+      "reason": "Le profil de contrôles requis change ; fraîche vérification nécessaire, même si la capacité reste vraie."
+    }
+  ],
+  "pending_transport_contract": [
+    "Rejet des booléens non stricts, tailles excessives, UA absent et champs supplémentaires : vérifier selon le schéma de transport figé, sans inventer ici une réponse HTTP.",
+    "Résoudre explicitement les doublons d'une même marque produit et les UA contenant plusieurs produits concurrents avant toute implémentation ; ces formes ne sont pas présentées comme des navigateurs légitimes.",
+    "Les permissions monitoring/tracking, cookies, TTL, overrides et preuves fraîches relèvent d'une recette HTTP distincte."
+  ],
+  "validation": {
+    "fixture_count": 58,
+    "sources_count": 7,
+    "real_browser_execution": false,
+    "application_parser_execution": false
+  },
+  "transport_schema_proposal": "schema2 browser.user_agent/brands/capabilities7 : case input remains conceptual; six extra capabilities default true. No application/parser test executed."
+}

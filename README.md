@@ -573,6 +573,35 @@ single-flight requests, finished guards, isolation, ordering and the preserved
 iframe. See `SPEC_EXECUTION_QUIZ_TRACKING_CONTINUOUS.md` for schema and publication.
 Use a fictitious session and manual native-gesture acceptance before general use.
 
+Increment 6 adds an optional declared-browser policy, initially off. Enabling it
+requires `preflight` or `continuous` tracking and an explicit owner action with
+CSRF, expected revision, a private reason and atomic audit. The allowed families
+are Chrome, Edge, Firefox and Safari. Current authenticated student requests
+compare HTTP/JavaScript product majors, available low-entropy brands and seven
+strict capability declarations. Minor versions, absent hints and GREASE do not
+invalidate a compatible environment. This does not attest software origin or
+signature; consistent spoofing can pass.
+
+Browser and tracking nonce powers remain separate. Browser-only revalidation
+does not renew or damage a healthy tracking proof, and diagnostic-only pulses
+never repair tracking. Each continuous pulse collects fresh capability data;
+preflight plus a tracking override retains only the last dated declaration.
+Teacher views never assess a student using the teacher's UA, and old observation
+queues/heartbeats cannot invalidate a replacement document. Manual blocks remain
+absolute; each technical override masks only its scope. Student and board
+projections expose only the final permission and generic refusal.
+
+Private targeted snapshots, paginated diagnostics and complete streamed CSV
+preserve normalized observations and provenance without raw UA or binding
+secrets. Unknown old archives are never reconstructed. API failures are handled
+without exposing exceptions: requests settle within12s even without abort, a
+failed monotone clock masks access conservatively, and an unmeasurable ordinary
+return records loss rather than a fabricated duration. The same iframe and draft
+survive suspension. Developer tests cover58 independent parsing fixtures,
+11 canonical pairs, schema2, scope/purpose/TTL isolation, rollback, privacy,
+runtime failures and compatibility. See `SPEC_EXECUTION_QUIZ_BROWSER.md` for
+contracts, limits, additive schema and the publication manifest.
+
 PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
 therefore verifies the presence and ordering of every sensitive Apache rule when
 Apache is unavailable. If an Apache binary is detected, the test requires two
