@@ -26,7 +26,7 @@ $sid = (int)$session['id'];
 
 <section class="card">
     <header class="card-header">
-        <h1><?php echo htmlspecialchars($session['title'], ENT_QUOTES, 'UTF-8'); ?></h1>
+        <h1 id="qa-title"><?php echo htmlspecialchars($session['title'], ENT_QUOTES, 'UTF-8'); ?></h1>
     </header>
     <div class="card-body">
         <?php if ($flash !== ''): ?>
@@ -36,15 +36,15 @@ $sid = (int)$session['id'];
             <span class="quiz-state quiz-state--<?php echo htmlspecialchars($session['state'], ENT_QUOTES, 'UTF-8'); ?>">
                 <?php echo htmlspecialchars($stateLabels[$session['state']] ?? $session['state'], ENT_QUOTES, 'UTF-8'); ?>
             </span>
-            &nbsp;·&nbsp; <?php echo (int)$session['duration_minutes']; ?> min
-            &nbsp;·&nbsp; <?php echo htmlspecialchars($i18n->t('quiz.admin.field_max_incidents'), ENT_QUOTES, 'UTF-8'); ?> : <?php echo (int)$session['max_incidents']; ?>
-            &nbsp;·&nbsp; <?php echo htmlspecialchars($i18n->t('quiz.admin.field_min_away'), ENT_QUOTES, 'UTF-8'); ?> : <?php echo (int)$session['min_away_seconds']; ?>s
-            <?php if (!empty($session['require_fullscreen'])): ?>
+            &nbsp;·&nbsp; <span id="qa-rule-duration_minutes"><?php echo (int)$session['duration_minutes']; ?></span> min
+            &nbsp;·&nbsp; <?php echo htmlspecialchars($i18n->t('quiz.admin.field_max_incidents'), ENT_QUOTES, 'UTF-8'); ?> : <span id="qa-rule-max_incidents"><?php echo (int)$session['max_incidents']; ?></span>
+            &nbsp;·&nbsp; <?php echo htmlspecialchars($i18n->t('quiz.admin.field_min_away'), ENT_QUOTES, 'UTF-8'); ?> : <span id="qa-rule-min_away_seconds"><?php echo (int)$session['min_away_seconds']; ?></span>s
+            <span id="qa-rule-fullscreen"<?php echo empty($session['require_fullscreen']) ? ' hidden' : ''; ?>>
                 &nbsp;·&nbsp; <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_fullscreen'), ENT_QUOTES, 'UTF-8'); ?>
-            <?php endif; ?>
-            <?php if (!empty($session['reload_is_incident'])): ?>
+            </span>
+            <span id="qa-rule-reload"<?php echo empty($session['reload_is_incident']) ? ' hidden' : ''; ?>>
                 &nbsp;·&nbsp; <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_reload'), ENT_QUOTES, 'UTF-8'); ?>
-            <?php endif; ?>
+            </span>
         </p>
 
         <?php if (in_array($session['state'], ['lobby', 'running'], true) && $session['access_pin'] !== null): ?>
@@ -429,6 +429,20 @@ $sid = (int)$session['id'];
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (!data || !Array.isArray(data.attempts)) { return; }
+                if (typeof data.title === 'string') {
+                    document.getElementById('qa-title').textContent = data.title;
+                }
+                ['duration_minutes', 'max_incidents', 'min_away_seconds'].forEach(function (key) {
+                    if (typeof data[key] === 'number') {
+                        document.getElementById('qa-rule-' + key).textContent = String(data[key]);
+                    }
+                });
+                if (typeof data.require_fullscreen === 'boolean') {
+                    document.getElementById('qa-rule-fullscreen').hidden = !data.require_fullscreen;
+                }
+                if (typeof data.reload_is_incident === 'boolean') {
+                    document.getElementById('qa-rule-reload').hidden = !data.reload_is_incident;
+                }
                 var maxIncidents = typeof data.max_incidents === 'number' ? data.max_incidents : 0;
                 var connected = 0;
                 var html = '';

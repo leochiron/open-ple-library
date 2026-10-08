@@ -42,17 +42,24 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
     <div class="quiz-banner__right">
         <span id="quiz-incidents" class="quiz-banner__incidents" data-count="<?php echo (int)$attempt['incident_count']; ?>">
             <?php echo htmlspecialchars($i18n->t('quiz.room.incidents'), ENT_QUOTES, 'UTF-8'); ?> :
-            <strong id="quiz-incidents-count"><?php echo (int)$attempt['incident_count']; ?></strong>/<?php echo (int)$session['max_incidents']; ?>
+            <strong id="quiz-incidents-count"><?php echo (int)$attempt['incident_count']; ?></strong>/<span id="quiz-incidents-max"><?php echo (int)$session['max_incidents']; ?></span>
         </span>
     </div>
 </header>
 
 <main class="quiz-room__main">
     <h2 class="quiz-student-heading"><?php echo htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8'); ?></h2>
+    <p class="quiz-hint">
+        <span id="quiz-rule-duration_minutes"><?php echo (int)$session['duration_minutes']; ?></span> min
+        · <?php echo htmlspecialchars($i18n->t('quiz.admin.field_max_incidents'), ENT_QUOTES, 'UTF-8'); ?> : <span id="quiz-rule-max_incidents"><?php echo (int)$session['max_incidents']; ?></span>
+        · <?php echo htmlspecialchars($i18n->t('quiz.admin.field_min_away'), ENT_QUOTES, 'UTF-8'); ?> : <span id="quiz-rule-min_away_seconds"><?php echo (int)$session['min_away_seconds']; ?></span>s
+        <span id="quiz-rule-fullscreen"<?php echo empty($session['require_fullscreen']) ? ' hidden' : ''; ?>> · <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_fullscreen'), ENT_QUOTES, 'UTF-8'); ?></span>
+        <span id="quiz-rule-reload"<?php echo empty($session['reload_is_incident']) ? ' hidden' : ''; ?>> · <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_reload'), ENT_QUOTES, 'UTF-8'); ?></span>
+    </p>
 
     <!-- Lobby: waiting for teacher launch -->
     <section id="quiz-lobby" class="quiz-panel" hidden>
-        <h1><?php echo htmlspecialchars($session['title'], ENT_QUOTES, 'UTF-8'); ?></h1>
+        <h1 id="quiz-title"><?php echo htmlspecialchars($session['title'], ENT_QUOTES, 'UTF-8'); ?></h1>
         <p class="quiz-lobby__status">
             <span class="quiz-pulse" aria-hidden="true"></span>
             <?php echo htmlspecialchars($i18n->t('quiz.room.waiting'), ENT_QUOTES, 'UTF-8'); ?>
