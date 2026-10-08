@@ -18,6 +18,7 @@ use Throwable;
  */
 class QuizService
 {
+    use QuizTracking;
     // Unambiguous alphabet for student codes (no 0/O, 1/I/L)
     private const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
     private const CODE_LENGTH = 5;
@@ -154,7 +155,7 @@ class QuizService
             $stmt = $this->db->prepare(
                 'UPDATE quiz_sessions SET title = :title, google_form_url = :url, google_form_edit_url = :edit_url, attempt_entry_id = :entry,
                         duration_minutes = :duration, max_incidents = :max_incidents, min_away_seconds = :min_away,
-                        require_fullscreen = :fullscreen, reload_is_incident = :reload
+                        require_fullscreen = :fullscreen, reload_is_incident = :reload, settings_revision = settings_revision + 1
                  WHERE id = :id'
             );
             $stmt->execute([
@@ -171,6 +172,7 @@ class QuizService
             ]);
 
             $session = $this->requireSession($sessionId);
+            if (!$before['require_fullscreen'] && !empty($session['require_fullscreen'])) { $this->invalidateTrackingSession($sessionId, 'fullscreen_added'); }
             $this->reclassifyEvents($session);
 
             // Reclassification and every attempt count commit with the rules.
@@ -343,6 +345,7 @@ class QuizService
         $this->sessionMutation($sessionId, 'launched', function (array $session) use ($sessionId): void {
             if (!in_array($session['state'], ['lobby', 'running'], true)) { throw new RuntimeException('invalid_state'); }
             $this->expireTechnicalOverrides($sessionId, 'new_launch');
+            $this->invalidateTrackingSession($sessionId, 'new_launch');
             $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now, tracking_generation = :generation WHERE id = :id");
             $stmt->execute(['now' => $this->now(), 'generation' => bin2hex(random_bytes(16)), 'id' => $sessionId]);
         });
@@ -352,6 +355,7 @@ class QuizService
     {
         $this->sessionMutation($sessionId, 'stopped', function (array $session) use ($sessionId): void {
             if ($session['state'] !== 'running') { throw new RuntimeException('invalid_state'); }
+            $this->invalidateTrackingSession($sessionId, 'stopped');
             $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'lobby', started_at = NULL WHERE id = :id");
             $stmt->execute(['id' => $sessionId]);
         });
@@ -364,6 +368,7 @@ class QuizService
             if (!in_array($session['state'], ['lobby', 'running'], true)) { throw new RuntimeException('invalid_state'); }
             $archived = $this->archiveAttempts($session);
             $this->expireTechnicalOverrides($sessionId, 'reset');
+            $this->invalidateTrackingSession($sessionId, 'reset');
             $stmt = $this->db->prepare('DELETE FROM quiz_events WHERE attempt_id IN (SELECT id FROM quiz_attempts WHERE session_id = :sid)');
             $stmt->execute(['sid' => $sessionId]);
             $stmt = $this->db->prepare("UPDATE quiz_attempts SET incident_count = 0, status = 'started', finished_at = NULL WHERE session_id = :sid");
@@ -378,6 +383,7 @@ class QuizService
     {
         $this->sessionMutation($sessionId, 'closed', function (array $session) use ($sessionId): void {
             $this->expireTechnicalOverrides($sessionId, 'closed');
+            $this->invalidateTrackingSession($sessionId, 'closed');
             $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'closed', closed_at = :now, access_pin = NULL WHERE id = :id");
             $stmt->execute(['now' => $this->now(), 'id' => $sessionId]);
         });
@@ -828,6 +834,15 @@ class QuizService
     /** Public decision exposes no cause, policy row, actor or technical detail. */
     public function studentAccessAllowed(int $sessionId, int $studentId): bool
     {
+        $owns = !$this->db->inTransaction();
+        if($owns){$this->db->beginTransaction();$this->trackingDecisionTime=null;}
+        try { if($owns){$stmt=$this->db->prepare('UPDATE quiz_sessions SET settings_revision=settings_revision WHERE id=:id');$stmt->execute(['id'=>$sessionId]);}
+            $result=$this->studentAccessAllowedUnlocked($sessionId,$studentId);if($owns){$this->db->commit();}return $result;
+        }catch(Throwable $e){if($owns&&$this->db->inTransaction()){$this->db->rollBack();}throw $e;}
+    }
+
+    private function studentAccessAllowedUnlocked(int $sessionId, int $studentId): bool
+    {
         if (!$this->projectedAccessAllowed($sessionId, $studentId)) { return QuizAccessEvaluator::evaluate(true, []); }
         $session = $this->requireSession($sessionId);
         $generation = (string)$session['tracking_generation'];
@@ -850,11 +865,25 @@ class QuizService
         $attemptId = $_SESSION['quiz_attempt_id'] ?? null;
         $attempt = is_int($attemptId) ? $this->getAttempt($attemptId) : null;
         if ($attempt === null || (int)$attempt['session_id'] !== $sessionId || (int)$attempt['student_id'] !== $studentId) { $attemptId = null; }
-        return ['session_id' => $sessionId, 'student_id' => $studentId, 'attempt_id' => $attemptId, 'tracking_generation' => $generation, 'context_ref' => null];
+        $ref = null;
+        $session = $this->requireSession($sessionId);
+        if ($session['tracking_mode'] === 'preflight') {
+            if ($attempt === null) { throw new RuntimeException('attempt_mismatch'); }
+            $ref = $this->trackingBoundContext($session, $attempt)['context_ref'];
+        }
+        return ['session_id' => $sessionId, 'student_id' => $studentId, 'attempt_id' => $attemptId, 'tracking_generation' => $generation, 'context_ref' => $ref];
     }
 
-    /** No automatic browser/tracking policy is enabled in 4b. 5/6 resolve cookie leases here. */
-    protected function currentTechnicalCauses(array $context): array { return []; }
+    /** Only 5a tracking preflight is active; browser checks remain reserved for6. */
+    protected function currentTechnicalCauses(array $context): array
+    {
+        if ($this->requireSession((int)$context['session_id'])['tracking_mode'] !== 'preflight') { return []; }
+        $stmt = $this->db->prepare('SELECT * FROM quiz_tracking_contexts WHERE context_ref=:ref'); $stmt->execute(['ref'=>$context['context_ref']]);
+        $row = $stmt->fetch();
+        if ($row === false || $row['status'] !== 'active') { throw new RuntimeException('cookie_context_mismatch'); }
+        $row = $this->trackingExpireProof($row);
+        return [['scope'=>'tracking', 'active'=>$row['proof_status'] !== 'healthy', 'code'=>$row['proof_status'] === 'expired' ? 'proof_expired' : 'proof_'.$row['proof_status']]];
+    }
 
     private function normalizeAccessReason(string $reason): string
     {
@@ -1001,6 +1030,7 @@ class QuizService
         $metadata = $this->normalizeEventMetadata($type, $metadata, (int)$attempt['id']);
         if ($metadata['duration_ms'] !== null) { $awaySeconds = (int)floor($metadata['duration_ms'] / 1000); }
         $this->db->beginTransaction();
+        $this->trackingDecisionTime=null;
         try {
             // The first write takes the SQLite lock before reading current rules.
             // A stale API context cannot restore an old qualification or count.
@@ -1014,7 +1044,10 @@ class QuizService
             if ($metadata['event_uid'] !== null && !hash_equals((string)$session['tracking_generation'], (string)$metadata['tracking_generation'])) {
                 throw new RuntimeException('stale_generation');
             }
+            $trackingObservation = $session['tracking_mode'] === 'preflight' && !in_array($type,['finish','resume'],true);
             if (in_array($type, ['finish', 'resume'], true)) {
+                if($session['tracking_mode']==='preflight' && $metadata['event_uid']===null){throw new RuntimeException('generation_mismatch');}
+                if($session['tracking_mode']==='preflight'){$this->trackingBoundContext($session,$currentAttempt);}
                 if (!$this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id'])) {
                     $state = $this->buildStatePayload($session, $currentAttempt);
                     $this->db->commit();
@@ -1033,14 +1066,13 @@ class QuizService
                 foreach (['absence_uid', 'source', 'related_event_uid', 'duration_ms', 'dropped_events', 'tracking_generation'] as $key) {
                     if ((string)($event[$key] ?? '') !== (string)($metadata[$key] ?? '')) { throw new RuntimeException('event_uid_conflict'); }
                 }
-                $accessAllowed = $this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id']);
+                $access = $trackingObservation ? ['settings_revision'=>(int)$session['settings_revision']] : ['access_allowed'=>$this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id'])];
                 $this->db->commit();
-                return [
+                return array_merge([
                     'incident_count' => (int)$currentAttempt['incident_count'], 'status' => $currentAttempt['status'],
                     'is_incident' => (int)$event['is_incident'] === 1, 'finished' => !empty($currentAttempt['finished_at']),
                     'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => true,
-                    'access_allowed' => $accessAllowed,
-                ];
+                ],$access);
             }
             $eventId = (int)$this->db->lastInsertId();
             if ($metadata['related_event_uid'] !== null) {
@@ -1092,10 +1124,10 @@ class QuizService
 
             $result = $this->recomputeAttemptStatus((int)$attempt['id'], (int)$session['id']);
             $currentAttempt = $this->getAttempt((int)$attempt['id']);
-            $accessAllowed = $this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id']);
+            $access = $trackingObservation ? ['settings_revision'=>(int)$session['settings_revision']] : ['access_allowed'=>$this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id'])];
             $this->db->commit();
             return array_merge($result, ['is_incident' => $isIncident, 'finished' => !empty($currentAttempt['finished_at']), 'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => false,
-                'access_allowed' => $accessAllowed]);
+                ]+$access);
         } catch (Throwable $exception) {
             if ($this->db->inTransaction()) { $this->db->rollBack(); }
             throw $exception;
@@ -1185,12 +1217,23 @@ class QuizService
     /** Current rules and clock shared by student and teacher polling endpoints. */
     public function buildStatePayload(array $session, ?array $attempt = null): array
     {
+        $owns = $attempt !== null && !$this->db->inTransaction();
+        if ($owns) { $this->db->beginTransaction();$this->trackingDecisionTime=null; }
+        try {
+            if ($owns) { $lock=$this->db->prepare('UPDATE quiz_sessions SET settings_revision=settings_revision WHERE id=:id'); $lock->execute(['id'=>$session['id']]); }
+            $result=$this->buildStatePayloadUnlocked($session,$attempt);
+            if ($owns) { $this->db->commit(); } return $result;
+        } catch (Throwable $e) { if($owns && $this->db->inTransaction()){$this->db->rollBack();} throw $e; }
+    }
+
+    private function buildStatePayloadUnlocked(array $session, ?array $attempt): array
+    {
         if ($attempt !== null) {
             $session = $this->requireSession((int)$session['id']);
             $attempt = $this->getAttempt((int)$attempt['id']);
             if ($attempt === null || (int)$attempt['session_id'] !== (int)$session['id']) { throw new RuntimeException('attempt_mismatch'); }
         }
-        $now = time();
+        $now = $this->trackingClock();
         $payload = [
             'state' => $session['state'],
             'title' => (string)$session['title'],
@@ -1201,6 +1244,7 @@ class QuizService
             'reload_is_incident' => !empty($session['reload_is_incident']),
             'rules_version' => $this->rulesVersion($session),
             'server_now' => $now,
+            'settings_revision' => (int)$session['settings_revision'],
             'remaining_seconds' => null,
         ];
 
@@ -1217,6 +1261,16 @@ class QuizService
             $payload['attempt_status'] = $attempt['status'];
             $payload['finished'] = !empty($attempt['finished_at']);
             $payload['access_allowed'] = $this->studentAccessAllowed((int)$session['id'], (int)$attempt['student_id']);
+            $payload['tracking_mode'] = $session['tracking_mode'];
+            $payload['access_until'] = null;
+            if ($session['tracking_mode'] === 'preflight') {
+                $context=$this->trackingBoundContext($session,$attempt);
+                if ($payload['access_allowed']) {
+                    $context=$this->trackingExpireProof($context);
+                    $payload['access_until']=$context['proof_status']==='healthy' ? (int)$context['proof_until'] : $now+60;
+                    if ($context['admitted_at']===null) { $stmt=$this->db->prepare('UPDATE quiz_tracking_contexts SET admitted_at=:now WHERE id=:id');$stmt->execute(['now'=>$this->now(),'id'=>$context['id']]); }
+                }
+            }
             // The form URL is only delivered once the quiz is actually running.
             if ($payload['access_allowed'] && $session['state'] === 'running') {
                 $payload['form_url'] = $this->buildEmbeddedFormUrl($session, (string)$attempt['public_token']);
@@ -1265,7 +1319,11 @@ class QuizService
         $this->db->beginTransaction();
         try {
             $this->requireSession($sessionId);
+            $this->refreshTrackingProofs($sessionId);
             $this->csvHeader($out);
+            $policy = $this->requireSession($sessionId);
+            $row = array_fill(0, 23, ''); $row[0] = 'politique_suivi';
+            $this->csvRow($out, $row, array_pad(['suivi_courant'], 9, '') + [9 => json_encode(['tracking_policy' => ['mode' => $policy['tracking_mode'], 'settings_revision' => (int)$policy['settings_revision']]], JSON_THROW_ON_ERROR)]);
             $stmt = $this->db->prepare('SELECT a.*, st.first_name, st.last_name, st.code, st.email FROM quiz_attempts a JOIN quiz_students st ON st.id = a.student_id WHERE a.session_id = :sid ORDER BY a.id');
             $stmt->execute(['sid' => $sessionId]);
             while ($attempt = $stmt->fetch()) {
@@ -1287,6 +1345,7 @@ class QuizService
                 $this->csvRow($out, $record, ['derogation', '', '', '', $override['grant_actor_id'], $override['grant_actor_name'], 1, '', '', json_encode(['technical_override' => $override], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
             }
             $stmt->closeCursor();
+            $this->csvTrackingRecords($out, $sessionId);
             $before = 0;
             do {
                 $page = $this->listArchives($sessionId, $before, 25);
@@ -1358,6 +1417,14 @@ class QuizService
             $row = $this->csvEventRow($event + ['first_name' => $attempt['first_name'], 'last_name' => $attempt['last_name']]);
             $row[0] = 'archive_evenement'; $this->csvRow($out, $row, $metadata);
         }
+        $policy = $snapshot['tracking_policy'] ?? 'non conservé';
+        $trackingMetadata = $metadata;
+        $trackingMetadata[9] = json_encode(['tracking_policy' => $policy], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $row = array_fill(0, 23, ''); $row[0] = 'archive_politique_suivi';
+        $this->csvRow($out, $row, $trackingMetadata);
+        foreach ($snapshot['tracking_contexts'] ?? [] as $context) {
+            $this->csvTrackingRecord($out, 'archive_contexte_suivi', $context, $metadata);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1415,6 +1482,7 @@ class QuizService
             'state' => $session['state'], 'started_at' => $session['started_at'], 'closed_at' => $session['closed_at'],
             'pin_active' => !empty($session['access_pin']), 'tracking_generation' => $session['tracking_generation'],
             'history_revision' => (int)$session['history_revision'],
+            'tracking_mode' => $session['tracking_mode'], 'settings_revision' => (int)$session['settings_revision'],
         ];
     }
 
@@ -1466,6 +1534,8 @@ class QuizService
     private function archiveAttempts(array $session): int
     {
         $sid = (int)$session['id'];
+        // Observe expiry once for the complete reset snapshot, under its existing write lock.
+        $this->refreshTrackingProofs($sid);
         $stmt = $this->db->prepare('SELECT COUNT(*) FROM quiz_attempts WHERE session_id = :sid');
         $stmt->execute(['sid' => $sid]);
         if ((int)$stmt->fetchColumn() > self::MAX_ARCHIVE_ATTEMPTS) { throw new RuntimeException('archive_attempt_limit'); }
@@ -1481,6 +1551,8 @@ class QuizService
                 'reset_generation' => (string)($session['tracking_generation'] ?? ''), 'rules' => $this->ruleFields($session),
                 'attempt' => $frozenAttempt, 'events' => $events,
                 'access_context' => $this->getStudentAccess($sid, (int)$attempt['student_id']),
+                'tracking_policy' => ['mode'=>$session['tracking_mode'], 'settings_revision'=>(int)$session['settings_revision']],
+                'tracking_contexts' => $this->trackingSnapshotContexts($sid,(int)$attempt['id']),
                 'event_generations' => array_values(array_unique(array_filter(array_column($events, 'tracking_generation'), static fn($value): bool => $value !== null && $value !== '')))];
             $json = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
             $bytes = strlen($json); $totalBytes += $bytes;

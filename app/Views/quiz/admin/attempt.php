@@ -51,6 +51,7 @@ $overQuota = (int)$attempt['incident_count'] >= $maxIncidents;
             <h2><?php echo htmlspecialchars($i18n->t('quiz.access.title'), ENT_QUOTES, 'UTF-8'); ?> · <?php echo htmlspecialchars($i18n->t($accessContext['manual_blocked'] ? 'quiz.access.blocked' : 'quiz.access.allowed'), ENT_QUOTES, 'UTF-8'); ?></h2>
             <?php $accessStudentId = (int)$attempt['student_id']; include __DIR__ . '/access-controls.php'; ?>
         <?php endif; ?>
+        <?php $trackingPolicy = ['mode' => $session['tracking_mode'], 'settings_revision' => (int)$session['settings_revision']]; include __DIR__ . '/tracking-details.php'; ?>
     </div>
 </section>
 

@@ -190,6 +190,35 @@ CREATE TABLE IF NOT EXISTS quiz_technical_overrides (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_override_active ON quiz_technical_overrides(session_id, student_id, tracking_generation) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_quiz_override_session ON quiz_technical_overrides(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_quiz_override_student ON quiz_technical_overrides(session_id, student_id, id);
+
+CREATE TABLE IF NOT EXISTS quiz_tracking_contexts (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, context_ref TEXT NOT NULL UNIQUE,
+ cookie_binding_hash TEXT NOT NULL, document_epoch_hash TEXT NOT NULL,
+ session_id INTEGER NOT NULL, student_id INTEGER NOT NULL, attempt_id INTEGER NOT NULL,
+ tracking_generation TEXT NOT NULL, first_name TEXT NOT NULL, last_name TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('active','terminated')),
+ created_at TEXT NOT NULL, terminated_at TEXT, termination_kind TEXT,
+ proof_status TEXT NOT NULL DEFAULT 'missing', proof_until INTEGER, proof_issued_at TEXT,
+ proof_incarnation TEXT, checks_json TEXT, proof_fullscreen_required INTEGER NOT NULL DEFAULT 0,
+ admitted_at TEXT, phase TEXT NOT NULL DEFAULT 'pending',
+ identity_truncated INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_tracking_cookie ON quiz_tracking_contexts(cookie_binding_hash) WHERE status='active';
+CREATE INDEX IF NOT EXISTS idx_quiz_tracking_attempt ON quiz_tracking_contexts(session_id,attempt_id,id);
+CREATE TABLE IF NOT EXISTS quiz_tracking_challenges (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, context_id INTEGER NOT NULL,
+ secret_hash TEXT NOT NULL UNIQUE, settings_revision INTEGER NOT NULL,
+ issued_at TEXT NOT NULL, expires_at INTEGER NOT NULL, consumed_at TEXT, terminated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_tracking_challenge_context ON quiz_tracking_challenges(context_id,id);
+CREATE TABLE IF NOT EXISTS quiz_tracking_diagnostics (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL,
+ student_id INTEGER NOT NULL, attempt_id INTEGER NOT NULL, context_ref TEXT NOT NULL,
+ tracking_generation TEXT NOT NULL, first_name TEXT NOT NULL, last_name TEXT NOT NULL,
+ created_at TEXT NOT NULL, code TEXT NOT NULL, operation TEXT NOT NULL,
+ provenance TEXT NOT NULL, checks_json TEXT, identity_truncated INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_tracking_diagnostics_session ON quiz_tracking_diagnostics(session_id,id);
 SQL);
 
         // Migrations for databases created before these columns existed
@@ -199,6 +228,8 @@ SQL);
         $this->ensureColumn('quiz_events', 'excused', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_sessions', 'tracking_generation', 'TEXT');
         $this->ensureColumn('quiz_sessions', 'history_revision', 'INTEGER NOT NULL DEFAULT 0');
+        $this->ensureColumn('quiz_sessions', 'tracking_mode', "TEXT NOT NULL DEFAULT 'off'");
+        $this->ensureColumn('quiz_sessions', 'settings_revision', 'INTEGER NOT NULL DEFAULT 0');
         foreach (['event_uid', 'absence_uid', 'source', 'related_event_uid', 'tracking_generation'] as $column) {
             $this->ensureColumn('quiz_events', $column, 'TEXT');
         }

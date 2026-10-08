@@ -51,6 +51,22 @@ $esc = static fn($value): string => htmlspecialchars((string)$value, ENT_QUOTES,
             <?php if ($technicalOverrides['rows'] === []): ?><p><?php echo $esc($i18n->t('quiz.history.empty')); ?></p><?php endif; ?>
             <?php if ($technicalOverrides['next_before'] !== null): ?><a class="btn ghost" href="/quiz-admin/history?id=<?php echo $sid; ?>&amp;override_before=<?php echo (int)$technicalOverrides['next_before']; ?>"><?php echo $esc($i18n->t('quiz.history.older')); ?></a><?php endif; ?>
         <?php endif; ?>
+        <?php if (isset($trackingDiagnostics)): ?>
+            <h2><?php echo $esc($i18n->t('quiz.preflight.diagnostics')); ?></h2>
+            <p class="quiz-hint"><?php echo $esc($i18n->t('quiz.preflight.private_hint')); ?></p>
+            <?php if ($trackingDiagnostics['rows'] === []): ?><p><?php echo $esc($i18n->t('quiz.history.empty')); ?></p><?php endif; ?>
+            <?php foreach ($trackingDiagnostics['rows'] as $trackingDiagnostic): ?>
+                <details><summary><?php echo $esc(formatParisTime($trackingDiagnostic['created_at'])); ?> · <?php echo $esc(trim($trackingDiagnostic['first_name'].' '.$trackingDiagnostic['last_name'])); ?>
+                    · #<?php echo (int)$trackingDiagnostic['attempt_id']; ?> · <?php echo $esc($trackingDiagnostic['code']); ?></summary>
+                    <p><?php echo $esc($trackingDiagnostic['operation'].' · '.$trackingDiagnostic['provenance']); ?></p>
+                    <p><?php echo $esc($i18n->t('quiz.history.nonce')); ?> : <code><?php echo $esc($trackingDiagnostic['tracking_generation']); ?></code><br>
+                        context_ref : <code><?php echo $esc($trackingDiagnostic['context_ref']); ?></code></p>
+                    <?php if (!empty($trackingDiagnostic['identity_truncated'])): ?><p><?php echo $esc($i18n->t('quiz.preflight.identity_reduced')); ?></p><?php endif; ?>
+                    <?php if ($trackingDiagnostic['checks'] !== null): ?><pre><?php echo $esc(json_encode($trackingDiagnostic['checks'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)); ?></pre><?php endif; ?>
+                </details>
+            <?php endforeach; unset($trackingDiagnostic); ?>
+            <?php if ($trackingDiagnostics['next_before'] !== null): ?><a href="/quiz-admin/history?id=<?php echo $sid; ?>&amp;tracking_before=<?php echo (int)$trackingDiagnostics['next_before']; ?>"><?php echo $esc($i18n->t('quiz.history.older')); ?></a><?php endif; ?>
+        <?php endif; ?>
         <h2><?php echo $esc($i18n->t('quiz.history.audit')); ?></h2>
         <p class="quiz-hint"><?php echo $esc($i18n->t('quiz.history.audit_hint')); ?></p>
         <?php if ($audit['rows'] === []): ?><p><?php echo $esc($i18n->t('quiz.history.empty')); ?></p>
