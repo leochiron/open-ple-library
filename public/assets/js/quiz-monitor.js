@@ -27,7 +27,7 @@
     var iframeInjected = false;
     var timeoverShown = false;
     var finished = !!cfg.finished; // student declared they are done: monitoring stops
-    var finishClickedAt = 0; // ms timestamp of the local finish click
+    var completionPending = false; // wait for the server acknowledgement
 
     var els = {
         lobby: document.getElementById('quiz-lobby'),
@@ -43,7 +43,12 @@
         fsGate: document.getElementById('quiz-fullscreen-gate'),
         fsBtn: document.getElementById('quiz-fullscreen-btn'),
         finished: document.getElementById('quiz-finished'),
-        finishBtn: document.getElementById('quiz-finish-btn')
+        finishBtn: document.getElementById('quiz-finish-btn'),
+        completion: document.getElementById('quiz-completion'),
+        submitConfirm: document.getElementById('quiz-submit-confirm'),
+        finishStatus: document.getElementById('quiz-finish-status'),
+        resumeBtn: document.getElementById('quiz-resume-btn'),
+        resumeStatus: document.getElementById('quiz-resume-status')
     };
 
     // ------------------------------------------------------------------
@@ -60,15 +65,12 @@
         if (typeof state.incident_count === 'number') {
             updateIncidents(state.incident_count, state.attempt_status);
         }
-        if (typeof state.finished === 'boolean') {
-            // Server is the source of truth (a teacher reset clears the flag),
-            // but ignore a stale "false" right after the local finish click.
-            if (state.finished || Date.now() - finishClickedAt > 10000) {
-                finished = state.finished;
-            }
+        if (typeof state.finished === 'boolean' && !completionPending) {
+            finished = state.finished;
         }
 
         currentState = state.state;
+        if (finished) { hide(els.timeover); timeoverShown = false; }
 
         if (currentState !== 'running') {
             // Teacher stopped or closed the quiz: clear timer state and overlays
@@ -107,7 +109,9 @@
         }
 
         if (els.finishBtn) {
-            els.finishBtn.hidden = finished || currentState !== 'running';
+            els.completion.hidden = finished || currentState !== 'running';
+            els.finishBtn.disabled = completionPending || !els.submitConfirm.checked;
+            els.resumeBtn.hidden = !finished || currentState !== 'running';
         }
         updateFullscreenGate();
     }
@@ -189,7 +193,7 @@
         els.timer.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
         els.timer.classList.toggle('quiz-banner__timer--low', remaining > 0 && remaining <= 120);
 
-        if (remaining === 0 && !timeoverShown) {
+        if (!finished && remaining === 0 && !timeoverShown) {
             timeoverShown = true;
             show(els.timeover);
         } else if (remaining > 0 && timeoverShown) {
@@ -449,27 +453,56 @@
     // the monitoring so the student can freely close or leave the page.
     // ------------------------------------------------------------------
 
-    if (els.finishBtn) {
-        els.finishBtn.addEventListener('click', function () {
-            if (finished || currentState !== 'running') {
-                return;
+    function saveCompletion(type, statusEl) {
+        if (completionPending || currentState !== 'running') { return; }
+        completionPending = true;
+        els.finishBtn.disabled = true;
+        els.resumeBtn.disabled = true;
+        statusEl.textContent = cfg.i18n.finishPending;
+        var aborter = new AbortController();
+        var timeout = setTimeout(function () { aborter.abort(); }, 12000);
+        fetch(cfg.endpoints.event, {
+            method: 'POST', credentials: 'same-origin', signal: aborter.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: type, away_seconds: 0 })
+        }).then(function (r) {
+            if (!r.ok) { throw new Error('completion_not_saved'); }
+            return r.json();
+        }).then(function (result) {
+            if (typeof result.finished !== 'boolean' || result.finished !== (type === 'finish')) {
+                throw new Error('completion_not_acknowledged');
             }
-            if (!window.confirm(cfg.i18n.finishConfirm)) {
-                return;
-            }
-            finished = true;
-            finishClickedAt = Date.now();
+            finished = result.finished;
+            completionPending = false;
             awaySince = null;
             awayKind = null;
-            sendEventWithFeedback('finish', 0);
-
-            if (isFullscreen()) {
+            fsExitSince = null;
+            statusEl.textContent = '';
+            if (finished && isFullscreen()) {
                 var exitFn = document.exitFullscreen || document.webkitExitFullscreen;
-                if (exitFn) {
-                    try { exitFn.call(document); } catch (e) { /* ignore */ }
-                }
+                if (exitFn) { try { exitFn.call(document); } catch (e) {} }
             }
+            if (!finished) { els.submitConfirm.checked = false; }
             applyState({ state: currentState });
+        }).catch(function () {
+            completionPending = false;
+            statusEl.textContent = cfg.i18n.finishError;
+        }).finally(function () {
+            clearTimeout(timeout);
+            els.finishBtn.disabled = completionPending || !els.submitConfirm.checked;
+            els.resumeBtn.disabled = completionPending;
+        });
+    }
+    if (els.finishBtn) {
+        els.submitConfirm.addEventListener('change', function () {
+            els.finishBtn.disabled = completionPending || !els.submitConfirm.checked;
+        });
+        els.finishBtn.addEventListener('click', function () {
+            if (finished || !els.submitConfirm.checked || currentState !== 'running') { return; }
+            saveCompletion('finish', els.finishStatus);
+        });
+        els.resumeBtn.addEventListener('click', function () {
+            if (finished) { saveCompletion('resume', els.resumeStatus); }
         });
     }
 

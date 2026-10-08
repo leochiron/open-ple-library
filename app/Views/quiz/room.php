@@ -44,7 +44,6 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
             <?php echo htmlspecialchars($i18n->t('quiz.room.incidents'), ENT_QUOTES, 'UTF-8'); ?> :
             <strong id="quiz-incidents-count"><?php echo (int)$attempt['incident_count']; ?></strong>/<?php echo (int)$session['max_incidents']; ?>
         </span>
-        <button type="button" id="quiz-finish-btn" class="quiz-finish-btn" hidden>✅ <?php echo htmlspecialchars($i18n->t('quiz.room.finish_button'), ENT_QUOTES, 'UTF-8'); ?></button>
     </div>
 </header>
 
@@ -84,10 +83,20 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
         <div id="quiz-iframe-wrap" class="quiz-iframe-wrap"></div>
     </section>
 
+    <section id="quiz-completion" class="quiz-completion" aria-label="Fin du questionnaire" hidden>
+        <p><strong><?php echo htmlspecialchars($i18n->t('quiz.room.submit_step'), ENT_QUOTES, 'UTF-8'); ?></strong></p>
+        <p><?php echo htmlspecialchars($i18n->t('quiz.room.finish_step'), ENT_QUOTES, 'UTF-8'); ?></p>
+        <label class="quiz-completion__check"><input type="checkbox" id="quiz-submit-confirm"> <?php echo htmlspecialchars($i18n->t('quiz.room.submit_check'), ENT_QUOTES, 'UTF-8'); ?></label>
+        <button type="button" id="quiz-finish-btn" class="quiz-finish-btn" disabled><?php echo htmlspecialchars($i18n->t('quiz.room.finish_button'), ENT_QUOTES, 'UTF-8'); ?></button>
+        <p id="quiz-finish-status" role="status" aria-live="polite"></p>
+    </section>
+
     <!-- Finished: the student declared they are done -->
     <section id="quiz-finished" class="quiz-panel" hidden>
         <h1><?php echo htmlspecialchars($i18n->t('quiz.room.finished_title'), ENT_QUOTES, 'UTF-8'); ?></h1>
         <p><?php echo htmlspecialchars($i18n->t('quiz.room.finished_message'), ENT_QUOTES, 'UTF-8'); ?></p>
+        <button type="button" id="quiz-resume-btn" class="quiz-fullscreen-btn" hidden><?php echo htmlspecialchars($i18n->t('quiz.room.resume_button'), ENT_QUOTES, 'UTF-8'); ?></button>
+        <p id="quiz-resume-status" role="status" aria-live="polite"></p>
     </section>
 
     <!-- Closed -->
@@ -130,7 +139,9 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
             incidentWarning: <?php echo json_encode($i18n->t('quiz.room.incident_warning')); ?>,
             awayWarning: <?php echo json_encode($i18n->t('quiz.room.away_warning')); ?>,
             keyWarning: <?php echo json_encode($i18n->t('quiz.room.key_warning')); ?>,
-            finishConfirm: <?php echo json_encode($i18n->t('quiz.room.finish_confirm')); ?>
+            finishConfirm: <?php echo json_encode($i18n->t('quiz.room.finish_confirm')); ?>,
+            finishPending: <?php echo json_encode($i18n->t('quiz.room.finish_pending')); ?>,
+            finishError: <?php echo json_encode($i18n->t('quiz.room.finish_error')); ?>
         }
     };
 </script>

@@ -101,9 +101,16 @@ $sid = (int)$session['id'];
             <?php endif; ?>
             <a class="btn primary" href="/quiz-admin/board?id=<?php echo $sid; ?>" target="_blank">📺 <?php echo htmlspecialchars($i18n->t('quiz.admin.board_open'), ENT_QUOTES, 'UTF-8'); ?></a>
             <a class="btn ghost" href="/quiz-admin/codes?id=<?php echo $sid; ?>" target="_blank"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_codes'), ENT_QUOTES, 'UTF-8'); ?></a>
+            <?php if (!empty($session['google_form_edit_url'])): ?>
+                <a class="btn primary" href="<?php echo htmlspecialchars($session['google_form_edit_url'] . '#responses', ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener noreferrer">✉️ <?php echo htmlspecialchars($i18n->t('quiz.admin.results_send'), ENT_QUOTES, 'UTF-8'); ?></a>
+            <?php endif; ?>
             <a class="btn ghost" href="/quiz-admin/export?id=<?php echo $sid; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_export'), ENT_QUOTES, 'UTF-8'); ?></a>
             <a class="btn ghost" href="/quiz-admin"><?php echo htmlspecialchars($i18n->t('nav.back'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
+
+        <?php if (!empty($session['google_form_edit_url'])): ?>
+            <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.admin.results_send_hint'), ENT_QUOTES, 'UTF-8'); ?></p>
+        <?php endif; ?>
 
         <?php if ($admin['role'] === 'super_admin'): ?>
             <form method="post" action="/quiz-admin/session/transfer" class="quiz-admin-actions" style="margin-top:12px;">
@@ -138,6 +145,12 @@ $sid = (int)$session['id'];
                     <label for="qe-url"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_url'), ENT_QUOTES, 'UTF-8'); ?></label>
                     <input type="url" id="qe-url" name="google_form_url" required class="quiz-input"
                            value="<?php echo htmlspecialchars($session['google_form_url'], ENT_QUOTES, 'UTF-8'); ?>">
+                </div>
+                <div class="quiz-field quiz-field--full">
+                    <label for="qe-edit-url"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_edit_url'), ENT_QUOTES, 'UTF-8'); ?></label>
+                    <input type="url" id="qe-edit-url" name="google_form_edit_url" class="quiz-input"
+                           placeholder="https://docs.google.com/forms/d/.../edit" value="<?php echo htmlspecialchars((string)($session['google_form_edit_url'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                    <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_edit_url_hint'), ENT_QUOTES, 'UTF-8'); ?></p>
                 </div>
                 <div class="quiz-field quiz-field--full">
                     <label for="qe-entry"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_entry'), ENT_QUOTES, 'UTF-8'); ?></label>

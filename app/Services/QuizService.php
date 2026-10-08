@@ -62,11 +62,25 @@ class QuizService
     // Sessions (teacher side)
     // ------------------------------------------------------------------
 
+    private function normalizeFormEditUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+        // Keep the teacher link restricted to the native Google Forms editor.
+        if (!preg_match('~^https://docs\.google\.com/forms/d/([A-Za-z0-9_-]+)/edit(?:[?#][^\s]*)?$~D', $url, $match)) {
+            throw new RuntimeException('invalid_form_edit_url');
+        }
+        return 'https://docs.google.com/forms/d/' . $match[1] . '/edit';
+    }
+
     public function createSession(array $data, string $rosterText): array
     {
         $ownerId = $this->currentAdminId();
         $title = trim((string)($data['title'] ?? ''));
         $formUrl = trim((string)($data['google_form_url'] ?? ''));
+        $editUrl = $this->normalizeFormEditUrl((string)($data['google_form_edit_url'] ?? ''));
         $entryId = $this->normalizeEntryId((string)($data['attempt_entry_id'] ?? ''));
 
         if ($title === '' || $formUrl === '' || $entryId === '') {
@@ -76,17 +90,19 @@ class QuizService
             throw new RuntimeException('invalid_form_url');
         }
 
+        $this->validateRosterEmails($rosterText);
         $slug = $this->generateSlug($title);
 
         $stmt = $this->db->prepare(
-            'INSERT INTO quiz_sessions (owner_admin_id, slug, title, google_form_url, attempt_entry_id, duration_minutes, max_incidents, min_away_seconds, require_fullscreen, reload_is_incident, state)
-             VALUES (:owner, :slug, :title, :url, :entry, :duration, :max_incidents, :min_away, :fullscreen, :reload, :state)'
+            'INSERT INTO quiz_sessions (owner_admin_id, slug, title, google_form_url, google_form_edit_url, attempt_entry_id, duration_minutes, max_incidents, min_away_seconds, require_fullscreen, reload_is_incident, state)
+             VALUES (:owner, :slug, :title, :url, :edit_url, :entry, :duration, :max_incidents, :min_away, :fullscreen, :reload, :state)'
         );
         $stmt->execute([
             'owner' => $ownerId,
             'slug' => $slug,
             'title' => $title,
             'url' => $formUrl,
+            'edit_url' => $editUrl,
             'entry' => $entryId,
             'duration' => max(1, (int)($data['duration_minutes'] ?? 30)),
             'max_incidents' => max(1, (int)($data['max_incidents'] ?? 2)),
@@ -108,10 +124,12 @@ class QuizService
      */
     public function updateSession(int $sessionId, array $data): void
     {
-        $this->requireSession($sessionId);
+        $session = $this->requireSession($sessionId);
+        $data['google_form_edit_url'] = $data['google_form_edit_url'] ?? $session['google_form_edit_url'] ?? '';
 
         $title = trim((string)($data['title'] ?? ''));
         $formUrl = trim((string)($data['google_form_url'] ?? ''));
+        $editUrl = $this->normalizeFormEditUrl((string)($data['google_form_edit_url'] ?? ''));
         $entryId = $this->normalizeEntryId((string)($data['attempt_entry_id'] ?? ''));
 
         if ($title === '' || $formUrl === '' || $entryId === '') {
@@ -122,7 +140,7 @@ class QuizService
         }
 
         $stmt = $this->db->prepare(
-            'UPDATE quiz_sessions SET title = :title, google_form_url = :url, attempt_entry_id = :entry,
+            'UPDATE quiz_sessions SET title = :title, google_form_url = :url, google_form_edit_url = :edit_url, attempt_entry_id = :entry,
                     duration_minutes = :duration, max_incidents = :max_incidents, min_away_seconds = :min_away,
                     require_fullscreen = :fullscreen, reload_is_incident = :reload
              WHERE id = :id'
@@ -130,6 +148,7 @@ class QuizService
         $stmt->execute([
             'title' => $title,
             'url' => $formUrl,
+            'edit_url' => $editUrl,
             'entry' => $entryId,
             'duration' => max(1, (int)($data['duration_minutes'] ?? 30)),
             'max_incidents' => max(1, (int)($data['max_incidents'] ?? 2)),
@@ -148,14 +167,15 @@ class QuizService
     }
 
     /**
-     * Roster format: one student per line. Name and email are both optional
-     * (but at least one is required). Accepted separators: ';', ',' or spaces.
+     * Roster format: one student per line. Email is required; name is optional
+     * Accepted separators: ';', ',' or spaces.
      *   "Léa Dupont" — "Léa;Dupont" — "Léa Dupont lea@ecole.fr" — "lea@ecole.fr"
      * Returns the number of imported students.
      */
     public function importRoster(int $sessionId, string $rosterText): int
     {
         $this->requireSession($sessionId);
+        $this->validateRosterEmails($rosterText);
         // CSV exports are often Windows-1252; the rest of the app is UTF-8
         $rosterText = (string)preg_replace('/^\xEF\xBB\xBF/', '', $rosterText);
         if (!mb_check_encoding($rosterText, 'UTF-8')) {
@@ -397,7 +417,7 @@ class QuizService
         if ($first === '') {
             throw new RuntimeException('missing_fields');
         }
-        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             throw new RuntimeException('invalid_email');
         }
 
@@ -517,7 +537,7 @@ class QuizService
     {
         $this->requireSession($sessionId);
         $stmt = $this->db->prepare(
-            'SELECT a.*, st.first_name, st.last_name, st.code,
+            'SELECT a.*, st.first_name, st.last_name, st.code, st.email,
                     (SELECT COUNT(*) FROM quiz_events e WHERE e.attempt_id = a.id) AS event_count
              FROM quiz_attempts a
              JOIN quiz_students st ON st.id = a.student_id
@@ -694,7 +714,7 @@ class QuizService
 
     public function getAttempt(int $attemptId): ?array
     {
-        $sql = 'SELECT a.*, st.first_name, st.last_name, st.code
+        $sql = 'SELECT a.*, st.first_name, st.last_name, st.code, st.email
              FROM quiz_attempts a
              JOIN quiz_students st ON st.id = a.student_id
              JOIN quiz_sessions s ON s.id = a.session_id
@@ -722,7 +742,7 @@ class QuizService
      */
     public function recordEvent(array $session, array $attempt, string $type, int $awaySeconds): array
     {
-        $allowedTypes = ['hidden', 'blur', 'fullscreen_exit', 'reload', 'leave', 'devtools', 'copy', 'paste', 'print', 'finish'];
+        $allowedTypes = ['hidden', 'blur', 'fullscreen_exit', 'reload', 'leave', 'devtools', 'copy', 'paste', 'print', 'finish', 'resume'];
         if (!in_array($type, $allowedTypes, true)) {
             throw new RuntimeException('invalid_event_type');
         }
@@ -737,11 +757,19 @@ class QuizService
             $isIncident = true;
         }
 
+        if (in_array($type, ['finish', 'resume'], true) && $session['state'] !== 'running') {
+            throw new RuntimeException('session_not_running');
+        }
         $this->insertEvent((int)$attempt['id'], $type, $awaySeconds, $isIncident);
 
         if ($type === 'finish') {
             $stmt = $this->db->prepare('UPDATE quiz_attempts SET finished_at = :now WHERE id = :id AND finished_at IS NULL');
             $stmt->execute(['now' => $this->now(), 'id' => (int)$attempt['id']]);
+        }
+
+        if ($type === 'resume') {
+            $stmt = $this->db->prepare('UPDATE quiz_attempts SET finished_at = NULL WHERE id = :id');
+            $stmt->execute(['id' => (int)$attempt['id']]);
         }
 
         if ($isIncident) {
@@ -756,6 +784,7 @@ class QuizService
             'incident_count' => (int)$attempt['incident_count'],
             'status' => (string)$attempt['status'],
             'is_incident' => false,
+            'finished' => $type === 'finish' || ($type !== 'resume' && !empty($attempt['finished_at'])),
         ];
     }
 
@@ -823,12 +852,12 @@ class QuizService
         $events = $this->listEvents($sessionId);
 
         $out = fopen('php://temp', 'r+');
-        fputcsv($out, ['type', 'nom', 'prenom', 'code', 'token', 'statut', 'incidents', 'rejoint_a', 'dernier_heartbeat', 'evenement', 'duree_absence_s', 'date'], ';');
+        fputcsv($out, ['type', 'nom', 'prenom', 'code', 'token', 'email', 'fin_declaree_a', 'reponses_google_forms', 'statut', 'incidents', 'rejoint_a', 'dernier_heartbeat', 'evenement', 'duree_absence_s', 'date'], ';');
         foreach ($attempts as $a) {
-            fputcsv($out, ['tentative', $a['last_name'], $a['first_name'], $a['code'], $a['public_token'], $a['status'], $a['incident_count'], $this->toParisTime($a['started_at']), $this->toParisTime($a['last_heartbeat_at']), '', '', ''], ';');
+            fputcsv($out, ['tentative', $a['last_name'], $a['first_name'], $a['code'], $a['public_token'], $a['email'], $this->toParisTime($a['finished_at']), 'non vérifiées dans Quiz', $a['status'], $a['incident_count'], $this->toParisTime($a['started_at']), $this->toParisTime($a['last_heartbeat_at']), '', '', ''], ';');
         }
         foreach ($events as $e) {
-            fputcsv($out, ['evenement', $e['last_name'], $e['first_name'], '', '', '', '', '', '', $e['event_type'] . ($e['is_incident'] ? (!empty($e['excused']) ? ' (incident excusé)' : ' (incident)') : ''), $e['away_seconds'], $this->toParisTime($e['created_at'])], ';');
+            fputcsv($out, ['evenement', $e['last_name'], $e['first_name'], '', '', '', '', '', '', '', '', '', $e['event_type'] . ($e['is_incident'] ? (!empty($e['excused']) ? ' (incident excusé)' : ' (incident)') : ''), $e['away_seconds'], $this->toParisTime($e['created_at'])], ';');
         }
         rewind($out);
         $csv = stream_get_contents($out) ?: '';
@@ -891,6 +920,26 @@ class QuizService
             $matched++;
         }
         return $matched > 0;
+    }
+
+    /** Validate the whole import before creating a session or inserting any row. */
+    private function validateRosterEmails(string $text): void
+    {
+        $text = (string)preg_replace('/^\xEF\xBB\xBF/', '', $text);
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            $text = mb_convert_encoding($text, 'UTF-8', 'Windows-1252');
+        }
+        foreach (preg_split('/\r\n|\r|\n/', trim($text)) ?: [] as $index => $line) {
+            $line = trim($line);
+            if ($line === '') { continue; }
+            $separator = strpos($line, "\t") !== false ? "\t" : (strpos($line, ';') !== false ? ';' : (strpos($line, ',') !== false ? ',' : null));
+            $parts = $separator === null ? (preg_split('/\s+/', $line) ?: []) : array_map('trim', explode($separator, $line));
+            if ($this->isRosterHeader($parts)) { continue; }
+            $emails = array_filter($parts, static fn($part) => filter_var($part, FILTER_VALIDATE_EMAIL) !== false);
+            if (count($emails) !== 1) {
+                throw new RuntimeException('E-mail obligatoire et valide : ligne ' . ($index + 1));
+            }
+        }
     }
 
     private function generateStudentCode(array $existing): string
