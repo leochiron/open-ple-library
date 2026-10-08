@@ -47,7 +47,7 @@
             return Object.assign({ type: type, away_seconds: 0, attempt_id: attempt, tracking_generation: generation, event_uid: uid(), source: source }, extra || {});
         }
         function transport(p) {
-            return Object.assign({}, p, options.getCsrfToken ? { _csrf: options.getCsrfToken() } : {});
+            return Object.assign({}, p, options.getCsrfToken ? { _csrf: options.getCsrfToken() } : {}, options.getRoomEpoch ? { room_epoch: options.getRoomEpoch() } : {});
         }
         function append(p) {
             if (!generation || detached) { return; }

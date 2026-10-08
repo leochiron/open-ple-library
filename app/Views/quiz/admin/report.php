@@ -100,6 +100,7 @@ $timeline = array_reverse($events); // chronological order
     <?php else: ?><p><?php echo htmlspecialchars($i18n->t('quiz.access.not_recorded'), ENT_QUOTES, 'UTF-8'); ?></p><?php endif; ?>
     <h3><?php echo htmlspecialchars($i18n->t('quiz.override.title'), ENT_QUOTES, 'UTF-8'); ?></h3>
     <?php $technicalOverride = $accessContext['technical_override'] ?? null; include __DIR__ . '/override-details.php'; ?>
+    <?php include __DIR__ . '/tracking-details.php'; ?>
 </section>
 
 <section class="quiz-report-section">

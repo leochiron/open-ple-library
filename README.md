@@ -474,10 +474,12 @@ php tests/QuizEventJournalTest.php
 php tests/QuizHistoryAuditTest.php
 php tests/QuizManualAccessTest.php
 php tests/QuizTechnicalOverrideTest.php
+php tests/QuizTrackingPreflightTest.php
 node tests/QuizLiveSettingsJsTest.js
 node tests/QuizEventJournalJsTest.js
 node tests/QuizHistoryJsTest.js
 node tests/QuizManualAccessJsTest.js
+node tests/QuizTrackingPreflightJsTest.js
 php tests/RouteIntegrationTest.php
 php tests/WebServerRulesTest.php
 ```
@@ -524,6 +526,30 @@ rollback, old/new snapshots, complete CSV, CSRF and ownership. The existing
 `QuizManualAccessJsTest.js` verifies the unchanged reversible suspension/iframe
 contract. See `SPEC_EXECUTION_QUIZ_TECHNICAL_OVERRIDE.md` for the 4b contract,
 additive schema and publication manifest.
+
+Increment 5a adds an opt-in `preflight` pilot; new and existing quizzes remain
+`off`. Its server-bound cookie/document contexts, one-use120-second challenges
+and strictly boolean reported checks provide a60-second proof and permission.
+There are no continuous pulses yet: the teacher UI warns that this pilot is for
+a fictitious session until5b and manual acceptance. A fresh room HTML never
+contains the Forms URL in preflight mode, including under a tracking override.
+State adopts a new launch/reset generation on the same document epoch with no
+inherited proof. The public deadline uses a monotone browser guard and measured
+network delay; suspension preserves the same iframe and draft. A newer denial
+cannot be overwritten by an older preflight/completion response.
+
+Preparation gestures only enter private diagnostics, never the ordinary event
+journal. Existing queues and real returns of open ordinary episodes remain
+eligible; acquired ordinary monitoring continues during suspension. Private
+owner-only pages and streamed CSV retain bounded, allowlisted results/refusals
+without cookies, challenges, CSRF, document epochs or user input. Reset snapshots
+capture explicit policy and at most256 complete targeted contexts per attempt
+before terminating proofs; exceeding this limit refuses the entire reset.
+Teacher polling observes expiry even if student JavaScript stops. PHP/VM tests
+cover TTL, replay, document/cookie/generation isolation, overrides, SQL rollback,
+snapshot/CSV privacy, preparation separation and response ordering. Native
+Enter is also checked separately in Chromium; mock flags are not native gesture
+evidence. See `SPEC_EXECUTION_QUIZ_TRACKING_PREFLIGHT.md`.
 
 PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
 therefore verifies the presence and ordering of every sensitive Apache rule when

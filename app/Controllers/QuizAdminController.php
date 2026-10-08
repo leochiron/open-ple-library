@@ -126,6 +126,8 @@ class QuizAdminController
                 $this->changeManualAccess($subPath === '/access/block');
             } elseif (in_array($subPath, ['/access/override/grant', '/access/override/revoke'], true) && $method === 'POST') {
                 $this->changeTechnicalOverride($subPath === '/access/override/grant');
+            } elseif ($subPath === '/tracking/mode' && $method === 'POST') {
+                $this->changeTrackingMode();
             } elseif ($subPath === '/report' && $method === 'GET') {
                 $this->integrityReport();
             } elseif ($subPath === '/board' && $method === 'GET') {
@@ -330,6 +332,7 @@ class QuizAdminController
             'session' => $session,
             'attempt' => $attempt,
             'events' => $this->quiz->listEventsForAttempt($id),
+            'trackingContexts' => $this->quiz->getTrackingContexts((int)$session['id'],$id,(int)($_GET['tracking_before']??0)),
             'csrfToken' => $this->csrfToken(),
         ], $this->i18n, $this->config);
     }
@@ -442,6 +445,7 @@ class QuizAdminController
             'archives' => $this->quiz->listArchives((int)$session['id'], (int)($_GET['before'] ?? 0), 25, $attemptFilter > 0 ? $attemptFilter : null),
             'audit' => $this->quiz->listAudit((int)$session['id'], (int)($_GET['audit_before'] ?? 0)),
             'technicalOverrides' => $this->quiz->listTechnicalOverrides((int)$session['id'], null, (int)($_GET['override_before'] ?? 0)),
+            'trackingDiagnostics' => $this->quiz->listTrackingDiagnostics((int)$session['id'],(int)($_GET['tracking_before']??0)),
         ], $this->i18n, $this->config);
     }
 
@@ -453,6 +457,8 @@ class QuizAdminController
         $attempt = $archive['snapshot']['attempt'];
         $events = array_reverse($archive['snapshot']['events']);
         $accessContext = $archive['snapshot']['access_context'] ?? null;
+        $trackingPolicy = $archive['snapshot']['tracking_policy'] ?? null;
+        $trackingContexts = isset($archive['snapshot']['tracking_contexts']) ? ['rows' => $archive['snapshot']['tracking_contexts'], 'next_before' => null] : null;
         $i18n = $this->i18n;
         include __DIR__ . '/../Views/quiz/admin/report.php';
     }
@@ -516,6 +522,8 @@ class QuizAdminController
         }
         $events = $this->quiz->listEventsForAttempt($id);
         $accessContext = $this->quiz->getStudentAccess((int)$session['id'], (int)$attempt['student_id']);
+        $trackingPolicy = ['mode' => $session['tracking_mode'], 'settings_revision' => (int)$session['settings_revision']];
+        $trackingContexts = $this->quiz->getTrackingContexts((int)$session['id'], $id, (int)($_GET['tracking_before'] ?? 0));
         $i18n = $this->i18n;
         // Standalone printable page, outside the site layout
         include __DIR__ . '/../Views/quiz/admin/report.php';
@@ -582,6 +590,8 @@ class QuizAdminController
     private function apiAttempts(): void
     {
         $session = $this->requireSessionFromQuery();
+        // This private poll observes expiry even when the student's JavaScript has stopped.
+        $this->quiz->refreshTrackingProofs((int)$session['id']);
         $attempts = $this->quiz->listAttempts((int)$session['id']);
         $state = $this->quiz->buildStatePayload($session);
         $now = $state['server_now'];
@@ -681,6 +691,15 @@ class QuizAdminController
         }
         header('Location: /quiz-admin/session?id=' . $sid . '&flash=' . urlencode($flash));
         exit;
+    }
+
+    private function changeTrackingMode(): void
+    {
+        $sid=$_POST['id']??null;$revision=$_POST['settings_revision']??null;
+        if(!is_string($sid)||!ctype_digit($sid)||(int)$sid<1||!is_string($revision)||!ctype_digit($revision)||!is_string($_POST['mode']??null)||!is_string($_POST['reason']??null)){http_response_code(400);echo htmlspecialchars($this->i18n->t('quiz.tracking.invalid'),ENT_QUOTES,'UTF-8');return;}
+        try{$this->quiz->setTrackingMode((int)$sid,$_POST['mode'],(int)$revision,$_POST['reason']);$flash=$this->i18n->t('quiz.tracking.saved');}
+        catch(RuntimeException $e){if(!in_array($e->getMessage(),['invalid_tracking_mode','invalid_access_reason','settings_revision_mismatch','tracking_mode_unchanged'],true)){throw $e;}$flash=$this->i18n->t('quiz.tracking.invalid');}
+        header('Location: /quiz-admin/session?id='.(int)$sid.'&flash='.urlencode($flash));exit;
     }
 
     private function users(): void

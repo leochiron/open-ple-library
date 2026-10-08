@@ -31,7 +31,8 @@
     var detached = false;
     var accessAllowed = cfg.state.access_allowed !== false;
     var pollSequence = 0;
-    function boundUrl(url) { return url + (url.indexOf('?') === -1 ? '?' : '&') + 'attempt_id=' + cfg.attemptId; }
+    var settingsRevision = -1, permissionDeadline = null;
+    function boundUrl(url) { return url + (url.indexOf('?') === -1 ? '?' : '&') + 'attempt_id=' + cfg.attemptId + (cfg.roomEpoch ? '&room_epoch=' + encodeURIComponent(cfg.roomEpoch) : ''); }
 
     var els = {
         lobby: document.getElementById('quiz-lobby'),
@@ -60,6 +61,7 @@
     var journal = window.QuizEventJournal({
         attemptId: cfg.attemptId, endpoint: boundUrl(cfg.endpoints.event),
         getCsrfToken: function () { return cfg.csrfToken; },
+        getRoomEpoch: function () { return cfg.roomEpoch; },
         onAck: function (result, event) {
             updateIncidents(result.incident_count, result.status);
             if (result.access_allowed === false) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
@@ -79,18 +81,41 @@
         onConflict: poll
     });
     journal.setGeneration(cfg.state.tracking_generation);
+    var preflight = window.QuizTrackingPreflight ? window.QuizTrackingPreflight({
+        config: cfg,
+        onDecisionRequest: function () { return ++pollSequence; },
+        onState: function (state, elapsed, sequence) {
+            if (sequence !== pollSequence) { return false; }
+            applyState(state, elapsed);
+            return true;
+        },
+        onConflict: poll
+    }) : null;
 
     // ------------------------------------------------------------------
     // State handling
     // ------------------------------------------------------------------
 
-    function applyState(state) {
+    function applyState(state, elapsed) {
         if (typeof state.attempt_id === 'number' && state.attempt_id !== cfg.attemptId) { journal.detach(); return; }
         if (detached) { return; }
+        if (typeof state.settings_revision === 'number' && state.settings_revision < settingsRevision) { return; }
+        if (typeof state.settings_revision === 'number') { settingsRevision = state.settings_revision; }
+        cfg.state = Object.assign({}, cfg.state, state);
         if (typeof state.csrf_token === 'string') { cfg.csrfToken = state.csrf_token; }
         if (typeof state.access_allowed === 'boolean') { accessAllowed = state.access_allowed; }
         if (state.tracking_generation) { journal.setGeneration(state.tracking_generation); }
         applyRules(state);
+        if (cfg.state.tracking_mode === 'preflight' && typeof state.access_allowed === 'boolean') {
+            if (!state.access_allowed) { permissionDeadline = null; }
+            else if (typeof state.access_until === 'number' && typeof state.server_now === 'number') {
+                permissionDeadline = performance.now() + Math.max(0, (state.access_until - state.server_now) * 1000 - (elapsed || 0));
+            }
+            // A completion ACK without timing cannot clear/extend the current permission lease.
+            else if (permissionDeadline === null) { accessAllowed = false; }
+            if (state.access_allowed && permissionDeadline !== null && permissionDeadline <= performance.now()) { accessAllowed = false; }
+        } else if (cfg.state.tracking_mode === 'off') { permissionDeadline = null; }
+        if (preflight) { preflight.update(Object.assign({}, cfg.state, { access_allowed: accessAllowed })); }
         if (typeof state.server_now === 'number') {
             serverOffset = state.server_now - Math.floor(Date.now() / 1000);
         }
@@ -222,14 +247,16 @@
     function poll() {
         if (detached) { return; }
         var sequence = ++pollSequence;
+        var started = performance.now();
         fetch(boundUrl(cfg.endpoints.state), { credentials: 'same-origin' })
             .then(function (r) {
+                if (sequence !== pollSequence) { return null; }
                 if (r.status === 409 || r.status === 401 || r.status === 403) { journal.detach(); return null; }
                 return r.json();
             })
             .then(function (state) {
                 if (sequence === pollSequence && state && state.state) {
-                    applyState(state);
+                    applyState(state, Math.max(0, performance.now() - started));
                 }
             })
             .catch(function () { /* transient network error: keep last state */ })
@@ -262,6 +289,7 @@
 
     function tickTimer() {
         if (detached) { hide(els.timeover); return; }
+        if (cfg.state.tracking_mode === 'preflight' && accessAllowed && permissionDeadline !== null && performance.now() >= permissionDeadline) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
         if (!els.timer) {
             return;
         }
@@ -291,10 +319,11 @@
     // ------------------------------------------------------------------
 
     function sendEvent(type) {
-        if (!detached) { journal.observe(type, type === 'reload' ? 'navigation' : (type === 'leave' ? 'page' : 'shortcut')); }
+        var source = type === 'reload' ? 'navigation' : (type === 'leave' ? 'page' : 'shortcut');
+        if (!detached && (!preflight || preflight.captureAllowed(source))) { journal.observe(type, source); }
     }
     function markAway(kind) {
-        if (currentState === 'running' && !finished && !detached) { journal.start(kind); }
+        if (currentState === 'running' && !finished && !detached && (!preflight || preflight.captureAllowed(kind))) { journal.start(kind); }
     }
     function markBack(kind) { journal.end(kind); }
 
@@ -425,7 +454,7 @@
         if (!els.fsGate) {
             return;
         }
-        var needGate = !detached && accessAllowed && requireFullscreen && currentState === 'running' && !finished && !isFullscreen();
+        var needGate = cfg.state.tracking_mode !== 'preflight' && !detached && accessAllowed && requireFullscreen && currentState === 'running' && !finished && !isFullscreen();
         els.fsGate.hidden = !needGate;
     }
 
@@ -463,17 +492,27 @@
         var aborter = new AbortController();
         var timeout = setTimeout(function () { aborter.abort(); }, 12000);
         var completionPayload = journal.explicitPayload(type, 'page');
+        var strengthenedCompletion = cfg.state.tracking_mode === 'preflight';
+        var sequence = ++pollSequence;
         fetch(boundUrl(cfg.endpoints.event), {
             method: 'POST', credentials: 'same-origin', signal: aborter.signal,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(Object.assign({}, completionPayload, { _csrf: cfg.csrfToken }))
+            body: JSON.stringify(Object.assign({}, completionPayload, { _csrf: cfg.csrfToken, room_epoch: cfg.roomEpoch }))
         }).then(function (r) {
             if (r.status === 409 || r.status === 403) { poll(); }
             if (!r.ok) { throw new Error('completion_not_saved'); }
             return r.json();
         }).then(function (result) {
+            if ((strengthenedCompletion || cfg.state.tracking_mode === 'preflight') && sequence !== pollSequence) {
+                completionPending = false;
+                statusEl.textContent = '';
+                // The mutation may have succeeded; only a fresh state may now reconcile it.
+                poll();
+                return;
+            }
+            // Historical mode keeps its explicit completion acknowledgement behavior.
+            if (!strengthenedCompletion && cfg.state.tracking_mode !== 'preflight') { ++pollSequence; }
             if (result.access_allowed === false) {
-                ++pollSequence;
                 completionPending = false;
                 statusEl.textContent = '';
                 applyState(Object.assign({ state: currentState }, result));
@@ -483,7 +522,6 @@
                 throw new Error('completion_not_acknowledged');
             }
             finished = result.finished;
-            ++pollSequence;
             completionPending = false;
             journal.discard();
             statusEl.textContent = '';

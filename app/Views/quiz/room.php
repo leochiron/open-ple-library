@@ -19,6 +19,8 @@ $jsVersionPath = __DIR__ . '/../../../public/assets/js/quiz-monitor.js';
 $jsVersion = is_file($jsVersionPath) ? filemtime($jsVersionPath) : time();
 $journalVersionPath = __DIR__ . '/../../../public/assets/js/quiz-journal.js';
 $journalVersion = is_file($journalVersionPath) ? filemtime($journalVersionPath) : time();
+$preflightPath = __DIR__ . '/../../../public/assets/js/quiz-preflight.js';
+$preflightVersion = is_file($preflightPath) ? filemtime($preflightPath) : time();
 $cssVersionPath = __DIR__ . '/../../../public/assets/css/quiz.css';
 $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
 ?>
@@ -53,6 +55,12 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
     <p id="quiz-tracking-status" class="quiz-hint" role="status" hidden></p>
     <section id="quiz-access-unavailable" class="quiz-panel" role="status"<?php echo ($state['access_allowed'] ?? true) ? ' hidden' : ''; ?>>
         <p><?php echo htmlspecialchars($i18n->t('quiz.journal.detached'), ENT_QUOTES, 'UTF-8'); ?></p>
+    </section>
+    <section id="quiz-preflight" class="quiz-panel" hidden>
+        <p><?php echo htmlspecialchars($i18n->t('quiz.preflight.steps'),ENT_QUOTES,'UTF-8'); ?></p>
+        <button type="button" id="quiz-preflight-enter" class="btn ghost"><?php echo htmlspecialchars($i18n->t('quiz.preflight.enter'),ENT_QUOTES,'UTF-8'); ?></button>
+        <button type="button" id="quiz-preflight-fullscreen" class="btn ghost" hidden><?php echo htmlspecialchars($i18n->t('quiz.preflight.fullscreen'),ENT_QUOTES,'UTF-8'); ?></button>
+        <button type="button" id="quiz-preflight-submit" class="btn primary"><?php echo htmlspecialchars($i18n->t('quiz.preflight.continue'),ENT_QUOTES,'UTF-8'); ?></button>
     </section>
     <h2 class="quiz-student-heading"><?php echo htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8'); ?></h2>
     <p class="quiz-hint">
@@ -141,11 +149,14 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
     window.QUIZ_ROOM = {
         attemptId: <?php echo (int)$attempt['id']; ?>,
         csrfToken: <?php echo json_encode($state['csrf_token'] ?? ''); ?>,
+        roomEpoch: <?php echo json_encode($roomEpoch ?? ''); ?>,
         state: <?php echo json_encode($state); ?>,
         endpoints: {
             state: '/quiz/api/state',
             heartbeat: '/quiz/api/heartbeat',
-            event: '/quiz/api/event'
+            event: '/quiz/api/event',
+            challenge: '/quiz/api/tracking/challenge',
+            preflight: '/quiz/api/tracking/preflight'
         },
         minAwaySeconds: <?php echo (int)$session['min_away_seconds']; ?>,
         requireFullscreen: <?php echo !empty($session['require_fullscreen']) ? 'true' : 'false'; ?>,
@@ -162,6 +173,7 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
     };
 </script>
 <script src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/js/quiz-journal.js?v=<?php echo $journalVersion; ?>"></script>
+<script src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/js/quiz-preflight.js?v=<?php echo $preflightVersion; ?>"></script>
 <script src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/js/quiz-monitor.js?v=<?php echo $jsVersion; ?>"></script>
 </body>
 </html>
