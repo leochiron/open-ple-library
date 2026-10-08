@@ -48,7 +48,7 @@ $eventLabels = [
 <header class="quiz-board__bar">
     <div class="quiz-board__heading">
         <span class="quiz-board__live"><span class="quiz-live-dot" aria-hidden="true"></span> <?php echo htmlspecialchars($i18n->t('quiz.admin.board_title'), ENT_QUOTES, 'UTF-8'); ?></span>
-        <h1 class="quiz-board__title"><?php echo htmlspecialchars($session['title'], ENT_QUOTES, 'UTF-8'); ?></h1>
+        <h1 class="quiz-board__title" id="qb-title"><?php echo htmlspecialchars($session['title'], ENT_QUOTES, 'UTF-8'); ?></h1>
     </div>
     <div class="quiz-board__pin" id="qb-pin"<?php echo $initialPin === '' ? ' hidden' : ''; ?>>
         <span class="quiz-board__pin-label"><?php echo htmlspecialchars($i18n->t('quiz.admin.board_pin'), ENT_QUOTES, 'UTF-8'); ?></span>
@@ -85,7 +85,14 @@ $eventLabels = [
     <?php endif; ?>
 </main>
 
-<footer class="quiz-board__legend"><?php echo htmlspecialchars($i18n->t('quiz.admin.board_legend'), ENT_QUOTES, 'UTF-8'); ?></footer>
+<footer class="quiz-board__legend">
+    <?php echo htmlspecialchars($i18n->t('quiz.admin.board_legend'), ENT_QUOTES, 'UTF-8'); ?><br>
+    <span id="qb-rule-duration_minutes"><?php echo (int)$session['duration_minutes']; ?></span> min
+    · <?php echo htmlspecialchars($i18n->t('quiz.admin.field_max_incidents'), ENT_QUOTES, 'UTF-8'); ?> : <span id="qb-rule-max_incidents"><?php echo (int)$session['max_incidents']; ?></span>
+    · <?php echo htmlspecialchars($i18n->t('quiz.admin.field_min_away'), ENT_QUOTES, 'UTF-8'); ?> : <span id="qb-rule-min_away_seconds"><?php echo (int)$session['min_away_seconds']; ?></span>s
+    <span id="qb-rule-fullscreen"<?php echo empty($session['require_fullscreen']) ? ' hidden' : ''; ?>> · <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_fullscreen'), ENT_QUOTES, 'UTF-8'); ?></span>
+    <span id="qb-rule-reload"<?php echo empty($session['reload_is_incident']) ? ' hidden' : ''; ?>> · <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_reload'), ENT_QUOTES, 'UTF-8'); ?></span>
+</footer>
 
 <script>
 window.QUIZ_BOARD = {
@@ -150,6 +157,22 @@ window.QUIZ_BOARD = {
             .then(asJson)
             .then(function (data) {
                 if (!data || !Array.isArray(data.attempts)) { return; }
+
+                if (typeof data.title === 'string') {
+                    document.getElementById('qb-title').textContent = data.title;
+                }
+                if (typeof data.max_incidents === 'number') { cfg.maxIncidents = data.max_incidents; }
+                ['duration_minutes', 'max_incidents', 'min_away_seconds'].forEach(function (key) {
+                    if (typeof data[key] === 'number') {
+                        document.getElementById('qb-rule-' + key).textContent = String(data[key]);
+                    }
+                });
+                if (typeof data.require_fullscreen === 'boolean') {
+                    document.getElementById('qb-rule-fullscreen').hidden = !data.require_fullscreen;
+                }
+                if (typeof data.reload_is_incident === 'boolean') {
+                    document.getElementById('qb-rule-reload').hidden = !data.reload_is_incident;
+                }
 
                 if (typeof data.server_now === 'number') {
                     serverOffset = data.server_now - Math.floor(Date.now() / 1000);

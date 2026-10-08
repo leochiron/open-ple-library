@@ -37,6 +37,7 @@
         timer: document.getElementById('quiz-timer'),
         incidents: document.getElementById('quiz-incidents'),
         incidentsCount: document.getElementById('quiz-incidents-count'),
+        incidentsMax: document.getElementById('quiz-incidents-max'),
         timeover: document.getElementById('quiz-timeover'),
         awayWarning: document.getElementById('quiz-away-warning'),
         awayWarningText: document.getElementById('quiz-away-warning-text'),
@@ -56,6 +57,7 @@
     // ------------------------------------------------------------------
 
     function applyState(state) {
+        applyRules(state);
         if (typeof state.server_now === 'number') {
             serverOffset = state.server_now - Math.floor(Date.now() / 1000);
         }
@@ -71,6 +73,7 @@
 
         currentState = state.state;
         if (finished) { hide(els.timeover); timeoverShown = false; }
+        if (finished || currentState !== 'running') { fsExitSince = null; }
 
         if (currentState !== 'running') {
             // Teacher stopped or closed the quiz: clear timer state and overlays
@@ -128,6 +131,36 @@
 
     function show(el) { if (el) { el.hidden = false; } }
     function hide(el) { if (el) { el.hidden = true; } }
+
+    function applyRules(state) {
+        if (typeof state.title === 'string') {
+            document.title = state.title;
+            var title = document.getElementById('quiz-title');
+            if (title) { title.textContent = state.title; }
+        }
+        ['duration_minutes', 'max_incidents', 'min_away_seconds'].forEach(function (key) {
+            if (typeof state[key] !== 'number') { return; }
+            if (key === 'duration_minutes') { cfg.durationMinutes = state[key]; }
+            if (key === 'max_incidents') { cfg.maxIncidents = state[key]; }
+            var el = document.getElementById('quiz-rule-' + key);
+            if (el) { el.textContent = String(state[key]); }
+        });
+        if (typeof state.max_incidents === 'number' && els.incidentsMax) {
+            els.incidentsMax.textContent = String(state.max_incidents);
+        }
+        if (typeof state.min_away_seconds === 'number') { cfg.minAwaySeconds = state.min_away_seconds; }
+        if (typeof state.require_fullscreen === 'boolean') {
+            requireFullscreen = state.require_fullscreen;
+            if (!requireFullscreen) { fsExitSince = null; }
+            var fullscreenRule = document.getElementById('quiz-rule-fullscreen');
+            if (fullscreenRule) { fullscreenRule.hidden = !requireFullscreen; }
+        }
+        if (typeof state.reload_is_incident === 'boolean') {
+            cfg.reloadIsIncident = state.reload_is_incident;
+            var reloadRule = document.getElementById('quiz-rule-reload');
+            if (reloadRule) { reloadRule.hidden = !state.reload_is_incident; }
+        }
+    }
 
     function updateIncidents(count, status) {
         if (els.incidentsCount) {
@@ -412,14 +445,14 @@
     }
 
     function updateFullscreenGate() {
-        if (!requireFullscreen || !els.fsGate) {
+        if (!els.fsGate) {
             return;
         }
-        var needGate = currentState === 'running' && !finished && !isFullscreen();
+        var needGate = requireFullscreen && currentState === 'running' && !finished && !isFullscreen();
         els.fsGate.hidden = !needGate;
     }
 
-    if (requireFullscreen && els.fsBtn) {
+    if (els.fsBtn) {
         els.fsBtn.addEventListener('click', function () {
             var el = document.documentElement;
             var fn = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -429,6 +462,11 @@
         });
 
         var onFsChange = function () {
+            if (!requireFullscreen || currentState !== 'running' || finished) {
+                fsExitSince = null;
+                updateFullscreenGate();
+                return;
+            }
             if (isFullscreen()) {
                 if (fsExitSince !== null) {
                     var away = Math.round((Date.now() - fsExitSince) / 1000);

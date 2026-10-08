@@ -792,12 +792,18 @@ class QuizService
     // State & URLs
     // ------------------------------------------------------------------
 
-    /** Payload polled by the student page (and later by the class board). */
+    /** Current rules and clock shared by student and teacher polling endpoints. */
     public function buildStatePayload(array $session, ?array $attempt = null): array
     {
         $now = time();
         $payload = [
             'state' => $session['state'],
+            'title' => (string)$session['title'],
+            'duration_minutes' => (int)$session['duration_minutes'],
+            'max_incidents' => (int)$session['max_incidents'],
+            'min_away_seconds' => (int)$session['min_away_seconds'],
+            'require_fullscreen' => !empty($session['require_fullscreen']),
+            'reload_is_incident' => !empty($session['reload_is_incident']),
             'server_now' => $now,
             'remaining_seconds' => null,
         ];
@@ -809,7 +815,6 @@ class QuizService
 
         if ($attempt !== null) {
             $payload['incident_count'] = (int)$attempt['incident_count'];
-            $payload['max_incidents'] = (int)$session['max_incidents'];
             $payload['attempt_status'] = $attempt['status'];
             $payload['finished'] = !empty($attempt['finished_at']);
             // The form URL is only delivered once the quiz is actually running.

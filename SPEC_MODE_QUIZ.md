@@ -177,6 +177,8 @@ Des préréglages « souple », « normal » et « strict » peuvent rester disp
 
 ### 7.3 Exploitation en direct
 
+Décision du 8 octobre 2026 — les paramètres modifiés sont transmis aux pages déjà ouvertes : durée, quota, seuil hors page, plein écran et rechargement. La salle élève, la session formateur et le tableau projeté actualisent les règles au prochain rafraîchissement, sans remplacer le Google Form en cours. Activer le plein écran après ouverture doit fonctionner même s'il était initialement facultatif ; le désactiver retire le contrôle. Le quota courant pilote les compteurs et couleurs. Les fins et reprises confirmées par le serveur ainsi que les champs d'édition non enregistrés sont conservés. Le lot 1 est défini dans `SPEC_EXECUTION_QUIZ_LIVE_SETTINGS.md` ; il ne requalifie pas encore l'historique des événements, prévu au lot 2.
+
 - génération d’un PIN temporaire ;
 - écran projetable ;
 - état connecté/déconnecté ;

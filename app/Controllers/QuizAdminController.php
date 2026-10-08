@@ -495,13 +495,8 @@ class QuizAdminController
     {
         $session = $this->requireSessionFromQuery();
         $attempts = $this->quiz->listAttempts((int)$session['id']);
-        $now = time();
-
-        $remaining = null;
-        if ($session['state'] === 'running' && !empty($session['started_at'])) {
-            $endsAt = strtotime($session['started_at'] . ' UTC') + ((int)$session['duration_minutes'] * 60);
-            $remaining = max(0, $endsAt - $now);
-        }
+        $state = $this->quiz->buildStatePayload($session);
+        $now = $state['server_now'];
 
         $rows = array_map(static function (array $a) use ($now): array {
             $lastHb = $a['last_heartbeat_at'] ? strtotime($a['last_heartbeat_at'] . ' UTC') : null;
@@ -521,14 +516,10 @@ class QuizAdminController
         }, $attempts);
 
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode([
-            'state' => $session['state'],
-            'max_incidents' => (int)$session['max_incidents'],
-            'server_now' => $now,
-            'remaining_seconds' => $remaining,
+        echo json_encode(array_merge($state, [
             'pin' => $session['access_pin'] ?? null,
             'attempts' => $rows,
-        ]);
+        ]));
     }
 
     private function users(): void
