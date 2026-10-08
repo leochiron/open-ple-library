@@ -228,7 +228,7 @@ try {
     assertSameValue([], $quiz->listEventsForAttempt($aid), 'Rejected old queue cannot repopulate the reset journal');
     echo "QuizEventJournalTest: OK (migration, sources, idempotence, arbitration, bounds, legacy, generation)\n";
 } finally {
-    unset($send, $metadata, $start, $finishSource, $count, $update, $reject, $event, $action, $api, $controller, $quiz, $auth, $database, $upgraded, $db);
+    unset($send, $metadata, $start, $finishSource, $count, $update, $reject, $event, $action, $api, $controller, $quiz, $auth, $database, $upgraded, $db, $e);
     gc_collect_cycles();
     foreach (glob($tmp . DIRECTORY_SEPARATOR . '*') ?: [] as $file) { if (is_file($file)) { unlink($file); } }
     rmdir($tmp);

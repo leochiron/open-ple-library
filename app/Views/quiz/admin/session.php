@@ -105,6 +105,7 @@ $sid = (int)$session['id'];
                 <a class="btn primary" href="<?php echo htmlspecialchars($session['google_form_edit_url'] . '#responses', ENT_QUOTES, 'UTF-8'); ?>" target="_blank" rel="noopener noreferrer">✉️ <?php echo htmlspecialchars($i18n->t('quiz.admin.results_send'), ENT_QUOTES, 'UTF-8'); ?></a>
             <?php endif; ?>
             <a class="btn ghost" href="/quiz-admin/export?id=<?php echo $sid; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_export'), ENT_QUOTES, 'UTF-8'); ?></a>
+            <a class="btn ghost" href="/quiz-admin/history?id=<?php echo $sid; ?>"><?php echo htmlspecialchars($i18n->t('quiz.history.title'), ENT_QUOTES, 'UTF-8'); ?></a>
             <a class="btn ghost" href="/quiz-admin"><?php echo htmlspecialchars($i18n->t('nav.back'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
 
@@ -387,6 +388,7 @@ $sid = (int)$session['id'];
     var body = document.getElementById('qa-attempts-body');
     var counter = document.getElementById('qa-connected-count');
     var sessionId = <?php echo $sid; ?>;
+    window.QUIZ_HISTORY_REVISION = <?php echo (int)($session['history_revision'] ?? 0); ?>;
 
     function esc(s) {
         var d = document.createElement('div');
@@ -430,6 +432,10 @@ $sid = (int)$session['id'];
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (!data || !Array.isArray(data.attempts)) { return; }
+                if (typeof data.history_revision === 'number') {
+                    if (data.history_revision < window.QUIZ_HISTORY_REVISION) { return; }
+                    window.QUIZ_HISTORY_REVISION = data.history_revision;
+                }
                 if (typeof data.title === 'string') {
                     document.getElementById('qa-title').textContent = data.title;
                 }
@@ -481,6 +487,7 @@ $sid = (int)$session['id'];
     var sessionId = <?php echo $sid; ?>;
     var lastId = <?php echo (int)($recentEvents[0]['id'] ?? 0); ?>;
     var rulesVersion = <?php echo json_encode($rulesVersion ?? ''); ?>;
+    var historyRevision = <?php echo (int)($session['history_revision'] ?? 0); ?>;
     var feedPending = false;
 
     function esc(s) {
@@ -492,15 +499,20 @@ $sid = (int)$session['id'];
     function pollFeed() {
         if (feedPending) { return; }
         feedPending = true;
-        fetch('/quiz-admin/api/events?id=' + sessionId + '&after=' + lastId + '&rules_version=' + encodeURIComponent(rulesVersion), { credentials: 'same-origin' })
+        fetch('/quiz-admin/api/events?id=' + sessionId + '&after=' + lastId + '&rules_version=' + encodeURIComponent(rulesVersion) + '&history_revision=' + historyRevision, { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (!data || !Array.isArray(data.events)) { return; }
+                if (typeof data.history_revision === 'number' && data.history_revision < Math.max(historyRevision, window.QUIZ_HISTORY_REVISION || 0)) { return; }
                 if (data.reset) {
                     tbody.innerHTML = '';
                     lastId = 0;
                 }
                 if (typeof data.rules_version === 'string') { rulesVersion = data.rules_version; }
+                if (typeof data.history_revision === 'number') {
+                    historyRevision = data.history_revision;
+                    window.QUIZ_HISTORY_REVISION = Math.max(window.QUIZ_HISTORY_REVISION || 0, historyRevision);
+                }
                 if (data.events.length === 0) {
                     if (data.reset) {
                         tbody.innerHTML = '<tr id="qa-feed-empty"><td colspan="4"><?php echo htmlspecialchars($i18n->t('quiz.admin.no_events'), ENT_QUOTES, 'UTF-8'); ?></td></tr>';

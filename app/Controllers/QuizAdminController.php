@@ -109,6 +109,12 @@ class QuizAdminController
                 $this->sessionDetail();
             } elseif ($subPath === '/attempt' && $method === 'GET') {
                 $this->attemptDetail();
+            } elseif ($subPath === '/history' && $method === 'GET') {
+                $this->history();
+            } elseif ($subPath === '/archive' && $method === 'GET') {
+                $this->archiveReport();
+            } elseif ($subPath === '/archive/export' && $method === 'GET') {
+                $this->archiveExport();
             } elseif ($subPath === '/event/excuse' && $method === 'POST') {
                 $this->excuseEvent();
             } elseif ($subPath === '/attempt/excuse-all' && $method === 'POST') {
@@ -395,12 +401,49 @@ class QuizAdminController
     private function exportCsv(): void
     {
         $session = $this->requireSessionFromQuery();
-        $csv = $this->quiz->exportCsv((int)$session['id']);
         $filename = 'quiz-' . $session['slug'] . '-' . gmdate('Ymd-His') . '.csv';
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        // BOM so Excel opens UTF-8 accents correctly
-        echo "\xEF\xBB\xBF" . $csv;
+        $this->csvDownload($filename, function ($out) use ($session): void { $this->quiz->writeExportCsv((int)$session['id'], $out); });
+    }
+
+    private function csvDownload(string $filename, callable $writer): void
+    {
+        $out = fopen('php://temp', 'w+');
+        try {
+            $writer($out); // complete before headers: failures never deliver a partial CSV
+            rewind($out);
+            header('Content-Type: text/csv; charset=utf-8');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            echo "\xEF\xBB\xBF";
+            fpassthru($out);
+        } finally { fclose($out); }
+    }
+
+    private function history(): void
+    {
+        $session = $this->requireSessionFromQuery();
+        $attemptFilter = (int)($_GET['attempt_id'] ?? 0);
+        render('quiz/admin/history', [
+            'session' => $session, 'attemptFilter' => $attemptFilter,
+            'archives' => $this->quiz->listArchives((int)$session['id'], (int)($_GET['before'] ?? 0), 25, $attemptFilter > 0 ? $attemptFilter : null),
+            'audit' => $this->quiz->listAudit((int)$session['id'], (int)($_GET['audit_before'] ?? 0)),
+        ], $this->i18n, $this->config);
+    }
+
+    private function archiveReport(): void
+    {
+        $archive = $this->quiz->getArchive((int)($_GET['id'] ?? 0));
+        if ($archive === null) { throw new RuntimeException('resource_not_found'); }
+        $session = $archive['snapshot']['rules'];
+        $attempt = $archive['snapshot']['attempt'];
+        $events = array_reverse($archive['snapshot']['events']);
+        $i18n = $this->i18n;
+        include __DIR__ . '/../Views/quiz/admin/report.php';
+    }
+
+    private function archiveExport(): void
+    {
+        $id = (int)($_GET['id'] ?? 0);
+        $this->csvDownload('quiz-archive-' . $id . '.csv', function ($out) use ($id): void { $this->quiz->writeArchiveCsv($id, $out); });
     }
 
     /** Teacher arbitration: excuse or reinstate an incident, then back to the attempt page. */
@@ -425,7 +468,7 @@ class QuizAdminController
         exit;
     }
 
-    /** Full restart: wipes events, resets every student status, relaunches the timer. */
+    /** Preserve the complete current history before resetting student statuses. */
     private function resetSession(): void
     {
         $id = (int)($_POST['id'] ?? 0);
@@ -433,8 +476,11 @@ class QuizAdminController
         try {
             $this->quiz->resetAndRelaunch($id);
             $flash = $this->i18n->t('quiz.admin.reset_done');
-        } catch (RuntimeException $e) {
-            // Invalid state (e.g. armed/closed): just go back to the page
+        } catch (Throwable $e) {
+            if ($e instanceof RuntimeException && $e->getMessage() === 'resource_not_found') { throw $e; }
+            error_log(sprintf('Quiz reset failed: session_id=%d; exception=%s; message=%s; file=%s:%d',
+                $id, get_class($e), str_replace(["\r", "\n"], ' ', mb_substr($e->getMessage(), 0, 512)), $e->getFile(), $e->getLine()));
+            $flash = $this->i18n->t(str_starts_with($e->getMessage(), 'archive_') ? 'quiz.history.reset_limit' : 'quiz.history.reset_failed');
         }
         header('Location: /quiz-admin/session?id=' . $id . ($flash !== '' ? '&flash=' . urlencode($flash) : ''));
         exit;
@@ -473,8 +519,11 @@ class QuizAdminController
         $session = $this->requireSessionFromQuery();
         $after = (int)($_GET['after'] ?? 0);
         $version = $this->quiz->rulesVersion($session);
+        $revision = (int)$session['history_revision'];
         $requestedVersion = (string)($_GET['rules_version'] ?? '');
-        $reset = $requestedVersion !== '' && !hash_equals($version, $requestedVersion);
+        $requestedRevision = $_GET['history_revision'] ?? null;
+        $reset = ($requestedVersion !== '' && !hash_equals($version, $requestedVersion))
+            || ($requestedRevision !== null && (int)$requestedRevision !== $revision);
         $events = $reset
             ? $this->quiz->listRecentEvents((int)$session['id'])
             : $this->quiz->listEventsSince((int)$session['id'], $after);
@@ -502,7 +551,7 @@ class QuizAdminController
         }, $events);
 
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['events' => $rows, 'rules_version' => $version, 'reset' => $reset]);
+        echo json_encode(['events' => $rows, 'rules_version' => $version, 'history_revision' => $revision, 'reset' => $reset]);
     }
 
     private function apiAttempts(): void

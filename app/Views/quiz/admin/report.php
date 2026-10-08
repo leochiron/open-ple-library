@@ -45,17 +45,27 @@ $timeline = array_reverse($events); // chronological order
         &nbsp;·&nbsp; <?php echo htmlspecialchars($i18n->t('quiz.report.generated_at'), ENT_QUOTES, 'UTF-8'); ?> :
         <?php echo htmlspecialchars(formatParisTime(gmdate('Y-m-d H:i:s')), ENT_QUOTES, 'UTF-8'); ?>
     </p>
+    <?php if (isset($archive)): ?>
+        <p><strong><?php echo htmlspecialchars($i18n->t('quiz.history.snapshot'), ENT_QUOTES, 'UTF-8'); ?> #<?php echo (int)$archive['id']; ?></strong>
+            · <?php echo htmlspecialchars(formatParisTime($archive['archived_at']), ENT_QUOTES, 'UTF-8'); ?>
+            · <?php echo htmlspecialchars($archive['actor_name'], ENT_QUOTES, 'UTF-8'); ?>
+        </p>
+        <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.history.nonce'), ENT_QUOTES, 'UTF-8'); ?> : <code><?php echo htmlspecialchars($archive['generation'] ?: '—', ENT_QUOTES, 'UTF-8'); ?></code><br>
+            <?php echo htmlspecialchars($i18n->t('quiz.history.generations'), ENT_QUOTES, 'UTF-8'); ?> : <code><?php echo htmlspecialchars(implode(', ', $archive['snapshot']['event_generations']) ?: '—', ENT_QUOTES, 'UTF-8'); ?></code>
+        </p>
+        <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.history.read_only'), ENT_QUOTES, 'UTF-8'); ?></p>
+    <?php endif; ?>
 </header>
 
 <section class="quiz-report-section">
     <h2 class="quiz-report-student"><?php echo htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8'); ?></h2>
     <table class="quiz-table">
-        <tr>
+        <?php if (!isset($archive)): ?><tr>
             <th><?php echo htmlspecialchars($i18n->t('quiz.report.code'), ENT_QUOTES, 'UTF-8'); ?></th>
             <td><code><?php echo htmlspecialchars((string)$attempt['code'], ENT_QUOTES, 'UTF-8'); ?></code></td>
             <th><?php echo htmlspecialchars($i18n->t('quiz.report.token'), ENT_QUOTES, 'UTF-8'); ?></th>
             <td><code><?php echo htmlspecialchars((string)$attempt['public_token'], ENT_QUOTES, 'UTF-8'); ?></code></td>
-        </tr>
+        </tr><?php endif; ?>
         <tr>
             <th><?php echo htmlspecialchars($i18n->t('quiz.admin.joined_at'), ENT_QUOTES, 'UTF-8'); ?></th>
             <td><?php echo htmlspecialchars(formatParisTime($attempt['started_at']), ENT_QUOTES, 'UTF-8'); ?></td>
@@ -96,6 +106,7 @@ $timeline = array_reverse($events); // chronological order
                     <th>Type</th>
                     <th><?php echo htmlspecialchars($i18n->t('quiz.admin.col_away'), ENT_QUOTES, 'UTF-8'); ?></th>
                     <th><?php echo htmlspecialchars($i18n->t('quiz.report.col_qualification'), ENT_QUOTES, 'UTF-8'); ?></th>
+                    <?php if (isset($archive)): ?><th><?php echo htmlspecialchars($i18n->t('quiz.history.event_generation'), ENT_QUOTES, 'UTF-8'); ?></th><?php endif; ?>
                 </tr>
             </thead>
             <tbody>
@@ -117,6 +128,7 @@ $timeline = array_reverse($events); // chronological order
                                 <?php echo htmlspecialchars($i18n->t('quiz.report.qual_info'), ENT_QUOTES, 'UTF-8'); ?>
                             <?php endif; ?>
                         </td>
+                        <?php if (isset($archive)): ?><td><code title="<?php echo htmlspecialchars($e['tracking_generation'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars(substr($e['tracking_generation'] ?? '', 0, 8) ?: '—', ENT_QUOTES, 'UTF-8'); ?></code></td><?php endif; ?>
                     </tr>
                 <?php endforeach; ?>
             </tbody>

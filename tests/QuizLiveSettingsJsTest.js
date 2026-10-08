@@ -89,8 +89,10 @@ function harness(html, initial, storage = new Map()) {
     let monotone = 0;
     let state = initial;
     let stateStatus = 200;
+    let stateReply = null;
     let completion = null;
     let eventFeed = { events: [] };
+    let eventFeedReply = null;
     let eventResponse = null;
     const schedule = (fn, delay, repeat) => {
         timers.set(++nextId, { fn, delay, repeat });
@@ -120,6 +122,8 @@ function harness(html, initial, storage = new Map()) {
             }
             const response = url.includes('/events') ? eventFeed
                 : url.includes('/heartbeat') ? { ok: true } : state;
+            if (url.includes('/events') && eventFeedReply) { return eventFeedReply; }
+            if (url.includes('/attempts') && stateReply) { return stateReply; }
             return Promise.resolve({ status: stateStatus, ok: stateStatus === 200, json: async () => response });
         },
     });
@@ -127,8 +131,10 @@ function harness(html, initial, storage = new Map()) {
         context, document, window, elements, rows, events, requests, storage,
         setEventResponse: value => { eventResponse = value; },
         setEventFeed: value => { eventFeed = value; },
+        setEventFeedReply: value => { eventFeedReply = value; },
         setState: value => { state = value; },
         setStateStatus: value => { stateStatus = value; },
+        setStateReply: value => { stateReply = value; },
         setCompletion: value => { completion = value; },
         advance: ms => { now += ms; monotone += ms; },
         jumpClock: ms => { now += ms; },

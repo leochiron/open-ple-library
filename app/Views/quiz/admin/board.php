@@ -98,6 +98,7 @@ $eventLabels = [
 window.QUIZ_BOARD = {
     sessionId: <?php echo $sid; ?>,
     maxIncidents: <?php echo (int)$session['max_incidents']; ?>,
+    historyRevision: <?php echo (int)($session['history_revision'] ?? 0); ?>,
     endpoints: {
         attempts: '/quiz-admin/api/attempts?id=<?php echo $sid; ?>',
         events: '/quiz-admin/api/events?id=<?php echo $sid; ?>'
@@ -127,11 +128,21 @@ window.QUIZ_BOARD = {
 
     var lastEventId = 0;
     var primed = false;      // first events poll only records the cursor, no replay
+    var eventPending = false;
     var endsAt = null;       // server timestamp (s) when the quiz ends
     var serverOffset = 0;    // serverNow - clientNow
 
     function tile(studentId) {
         return grid.querySelector('.quiz-board__tile[data-student-id="' + studentId + '"]');
+    }
+
+    function acknowledgeRevision(revision) {
+        if (typeof revision !== 'number' || revision <= cfg.historyRevision) { return; }
+        cfg.historyRevision = revision;
+        lastEventId = 0;
+        primed = false;
+        ticker.hidden = true;
+        ticker.textContent = '';
     }
 
     // ---- Session loss (expired / logged out) -------------------------------
@@ -157,6 +168,8 @@ window.QUIZ_BOARD = {
             .then(asJson)
             .then(function (data) {
                 if (!data || !Array.isArray(data.attempts)) { return; }
+                if (typeof data.history_revision === 'number' && data.history_revision < cfg.historyRevision) { return; }
+                acknowledgeRevision(data.history_revision);
 
                 if (typeof data.title === 'string') {
                     document.getElementById('qb-title').textContent = data.title;
@@ -237,11 +250,15 @@ window.QUIZ_BOARD = {
 
     // ---- Live alerts from /api/events --------------------------------------
     function refreshEvents() {
-        if (sessionDead) { return; }
-        fetch(cfg.endpoints.events + '&after=' + lastEventId, { credentials: 'same-origin' })
+        if (sessionDead || eventPending) { return; }
+        eventPending = true;
+        fetch(cfg.endpoints.events + '&after=' + lastEventId + '&history_revision=' + cfg.historyRevision, { credentials: 'same-origin' })
             .then(asJson)
             .then(function (data) {
                 if (!data || !Array.isArray(data.events)) { return; }
+                if (typeof data.history_revision === 'number' && data.history_revision < cfg.historyRevision) { return; }
+                acknowledgeRevision(data.history_revision);
+                if (data.reset) { lastEventId = 0; primed = false; ticker.hidden = true; ticker.textContent = ''; }
                 var fullBatch = data.events.length >= 100; // server LIMIT: more history may follow
                 data.events.forEach(function (e) {
                     lastEventId = Math.max(lastEventId, e.id);
@@ -252,7 +269,8 @@ window.QUIZ_BOARD = {
                 });
                 if (!fullBatch) { primed = true; } // caught up: announce from here on
             })
-            .catch(function () {});
+            .catch(function () {})
+            .finally(function () { eventPending = false; });
     }
 
     function announce(e, label) {
