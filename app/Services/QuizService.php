@@ -162,19 +162,7 @@ class QuizService
             ]);
 
             $session = $this->requireSession($sessionId);
-            $events = $this->db->prepare(
-                "SELECT e.id, e.event_type, e.away_seconds FROM quiz_events e
-                 JOIN quiz_attempts a ON a.id = e.attempt_id
-                 WHERE a.session_id = :sid AND e.event_type IN ('hidden', 'blur', 'fullscreen_exit', 'reload')"
-            );
-            $events->execute(['sid' => $sessionId]);
-            $qualify = $this->db->prepare('UPDATE quiz_events SET is_incident = :incident WHERE id = :id');
-            foreach ($events->fetchAll() as $event) {
-                $qualify->execute([
-                    'incident' => $this->eventIsIncident($session, (string)$event['event_type'], (int)$event['away_seconds']) ? 1 : 0,
-                    'id' => (int)$event['id'],
-                ]);
-            }
+            $this->reclassifyEvents($session);
 
             // Reclassification and every attempt count commit with the rules.
             $stmt = $this->db->prepare('SELECT id FROM quiz_attempts WHERE session_id = :sid');
@@ -357,8 +345,8 @@ class QuizService
         if (!in_array($session['state'], ['lobby', 'running'], true)) {
             throw new RuntimeException('invalid_state');
         }
-        $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now WHERE id = :id");
-        $stmt->execute(['now' => $this->now(), 'id' => $sessionId]);
+        $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now, tracking_generation = :generation WHERE id = :id");
+        $stmt->execute(['now' => $this->now(), 'generation' => bin2hex(random_bytes(16)), 'id' => $sessionId]);
     }
 
     /** Pauses a running quiz back to the lobby (PIN kept, students see the waiting screen). */
@@ -379,23 +367,32 @@ class QuizService
      */
     public function resetAndRelaunch(int $sessionId): void
     {
-        $session = $this->requireSession($sessionId);
-        if (!in_array($session['state'], ['lobby', 'running'], true)) {
-            throw new RuntimeException('invalid_state');
+        $this->db->beginTransaction();
+        try {
+            $lock = $this->db->prepare('UPDATE quiz_sessions SET tracking_generation = tracking_generation WHERE id = :id');
+            $lock->execute(['id' => $sessionId]);
+            $session = $this->requireSession($sessionId);
+            if (!in_array($session['state'], ['lobby', 'running'], true)) {
+                throw new RuntimeException('invalid_state');
+            }
+
+            $stmt = $this->db->prepare(
+                'DELETE FROM quiz_events WHERE attempt_id IN (SELECT id FROM quiz_attempts WHERE session_id = :sid)'
+            );
+            $stmt->execute(['sid' => $sessionId]);
+
+            $stmt = $this->db->prepare(
+                "UPDATE quiz_attempts SET incident_count = 0, status = 'started', finished_at = NULL WHERE session_id = :sid"
+            );
+            $stmt->execute(['sid' => $sessionId]);
+
+            $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now, tracking_generation = :generation WHERE id = :id");
+            $stmt->execute(['now' => $this->now(), 'generation' => bin2hex(random_bytes(16)), 'id' => $sessionId]);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
         }
-
-        $stmt = $this->db->prepare(
-            'DELETE FROM quiz_events WHERE attempt_id IN (SELECT id FROM quiz_attempts WHERE session_id = :sid)'
-        );
-        $stmt->execute(['sid' => $sessionId]);
-
-        $stmt = $this->db->prepare(
-            "UPDATE quiz_attempts SET incident_count = 0, status = 'started', finished_at = NULL WHERE session_id = :sid"
-        );
-        $stmt->execute(['sid' => $sessionId]);
-
-        $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now WHERE id = :id");
-        $stmt->execute(['now' => $this->now(), 'id' => $sessionId]);
     }
 
     public function close(int $sessionId): void
@@ -635,23 +632,37 @@ class QuizService
      */
     public function setEventExcused(int $eventId, bool $excused): ?int
     {
-        $stmt = $this->db->prepare(
-            'SELECT e.id, e.attempt_id, e.is_incident, a.session_id
-             FROM quiz_events e JOIN quiz_attempts a ON a.id = e.attempt_id
-             WHERE e.id = :id'
-        );
-        $stmt->execute(['id' => $eventId]);
-        $event = $stmt->fetch();
-        if ($event === false || (int)$event['is_incident'] !== 1) {
-            return null;
+        $this->db->beginTransaction();
+        try {
+            $lock = $this->db->prepare('UPDATE quiz_events SET excused = excused WHERE id = :id');
+            $lock->execute(['id' => $eventId]);
+            $stmt = $this->db->prepare(
+                'SELECT e.id, e.attempt_id, e.is_incident, e.absence_uid, a.session_id
+                 FROM quiz_events e JOIN quiz_attempts a ON a.id = e.attempt_id
+                 WHERE e.id = :id'
+            );
+            $stmt->execute(['id' => $eventId]);
+            $event = $stmt->fetch();
+            if ($event === false || (int)$event['is_incident'] !== 1) {
+                $this->db->commit();
+                return null;
+            }
+            $this->requireSession((int)$event['session_id']);
+
+            $upd = $this->db->prepare(empty($event['absence_uid'])
+                ? 'UPDATE quiz_events SET excused = :ex WHERE id = :id'
+                : 'UPDATE quiz_events SET excused = :ex WHERE attempt_id = :aid AND absence_uid = :absence');
+            $upd->execute(empty($event['absence_uid'])
+                ? ['ex' => $excused ? 1 : 0, 'id' => (int)$event['id']]
+                : ['ex' => $excused ? 1 : 0, 'aid' => (int)$event['attempt_id'], 'absence' => $event['absence_uid']]);
+
+            $this->recomputeAttemptStatus((int)$event['attempt_id'], (int)$event['session_id']);
+            $this->db->commit();
+            return (int)$event['attempt_id'];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
         }
-        $this->requireSession((int)$event['session_id']);
-
-        $upd = $this->db->prepare('UPDATE quiz_events SET excused = :ex WHERE id = :id');
-        $upd->execute(['ex' => $excused ? 1 : 0, 'id' => (int)$event['id']]);
-
-        $this->recomputeAttemptStatus((int)$event['attempt_id'], (int)$event['session_id']);
-        return (int)$event['attempt_id'];
     }
 
     /**
@@ -661,16 +672,26 @@ class QuizService
      */
     public function excuseAttempt(int $attemptId): ?int
     {
-        $attempt = $this->getAttempt($attemptId);
-        if ($attempt === null) {
-            return null;
+        $this->db->beginTransaction();
+        try {
+            $lock = $this->db->prepare('UPDATE quiz_attempts SET incident_count = incident_count WHERE id = :id');
+            $lock->execute(['id' => $attemptId]);
+            $attempt = $this->getAttempt($attemptId);
+            if ($attempt === null) {
+                $this->db->commit();
+                return null;
+            }
+
+            $stmt = $this->db->prepare('UPDATE quiz_events SET excused = 1 WHERE attempt_id = :aid AND (is_incident = 1 OR absence_uid IN (SELECT absence_uid FROM quiz_events WHERE attempt_id = :aid AND is_incident = 1 AND absence_uid IS NOT NULL))');
+            $stmt->execute(['aid' => $attemptId]);
+
+            $this->recomputeAttemptStatus($attemptId, (int)$attempt['session_id']);
+            $this->db->commit();
+            return (int)$attempt['session_id'];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
         }
-
-        $stmt = $this->db->prepare('UPDATE quiz_events SET excused = 1 WHERE attempt_id = :aid AND is_incident = 1');
-        $stmt->execute(['aid' => $attemptId]);
-
-        $this->recomputeAttemptStatus($attemptId, (int)$attempt['session_id']);
-        return (int)$attempt['session_id'];
     }
 
     /** Recounts non-excused incidents and re-derives the attempt status. */
@@ -779,30 +800,80 @@ class QuizService
      * Records a monitoring event. The incident decision is made server-side:
      * an away period >= min_away_seconds on an away-type event counts as an incident.
      */
-    public function recordEvent(array $session, array $attempt, string $type, int $awaySeconds): array
+    public function recordEvent(array $session, array $attempt, string $type, int $awaySeconds, array $metadata = []): array
     {
-        $allowedTypes = ['hidden', 'blur', 'fullscreen_exit', 'reload', 'leave', 'devtools', 'copy', 'paste', 'print', 'finish', 'resume'];
+        $allowedTypes = ['hidden', 'blur', 'fullscreen_exit', 'reload', 'leave', 'devtools', 'copy', 'paste', 'print', 'finish', 'resume', 'away_start', 'tracking_diagnostic'];
         if (!in_array($type, $allowedTypes, true)) {
             throw new RuntimeException('invalid_event_type');
         }
 
         $awaySeconds = max(0, min($awaySeconds, 3600));
+        $metadata = $this->normalizeEventMetadata($type, $metadata, (int)$attempt['id']);
+        if ($metadata['duration_ms'] !== null) { $awaySeconds = (int)floor($metadata['duration_ms'] / 1000); }
         $this->db->beginTransaction();
         try {
             // The first write takes the SQLite lock before reading current rules.
             // A stale API context cannot restore an old qualification or count.
-            $this->insertEvent((int)$attempt['id'], $type, $awaySeconds, false);
-            $eventId = (int)$this->db->lastInsertId();
+            $inserted = $this->insertEvent((int)$attempt['id'], $type, $awaySeconds, false, $metadata);
             $session = $this->requireSession((int)$session['id']);
             $currentAttempt = $this->getAttempt((int)$attempt['id']);
             if ($currentAttempt === null || (int)$currentAttempt['session_id'] !== (int)$session['id']) {
                 throw new RuntimeException('resource_not_found');
             }
+            if ($metadata['event_uid'] !== null && !hash_equals((string)$session['tracking_generation'], (string)$metadata['tracking_generation'])) {
+                throw new RuntimeException('stale_generation');
+            }
+            if (!$inserted) {
+                $existing = $this->db->prepare('SELECT * FROM quiz_events WHERE attempt_id = :aid AND event_uid = :uid');
+                $existing->execute(['aid' => (int)$attempt['id'], 'uid' => $metadata['event_uid']]);
+                $event = $existing->fetch();
+                if (!$event || $event['event_type'] !== $type || (int)$event['away_seconds'] !== $awaySeconds) {
+                    throw new RuntimeException('event_uid_conflict');
+                }
+                foreach (['absence_uid', 'source', 'related_event_uid', 'duration_ms', 'dropped_events', 'tracking_generation'] as $key) {
+                    if ((string)($event[$key] ?? '') !== (string)($metadata[$key] ?? '')) { throw new RuntimeException('event_uid_conflict'); }
+                }
+                $this->db->commit();
+                return [
+                    'incident_count' => (int)$currentAttempt['incident_count'], 'status' => $currentAttempt['status'],
+                    'is_incident' => (int)$event['is_incident'] === 1, 'finished' => !empty($currentAttempt['finished_at']),
+                    'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => true,
+                ];
+            }
+            $eventId = (int)$this->db->lastInsertId();
+            if ($metadata['related_event_uid'] !== null) {
+                $related = $this->db->prepare('SELECT event_type, absence_uid, source FROM quiz_events WHERE attempt_id = :aid AND event_uid = :uid');
+                $related->execute(['aid' => (int)$attempt['id'], 'uid' => $metadata['related_event_uid']]);
+                $start = $related->fetch();
+                if ($start && ($start['event_type'] !== 'away_start' || $start['absence_uid'] !== $metadata['absence_uid'] || $start['source'] !== $metadata['source'])) { throw new RuntimeException('invalid_event_relation'); }
+            }
+            if ($type === 'away_start') {
+                $returns = $this->db->prepare('SELECT absence_uid, source FROM quiz_events WHERE attempt_id = :aid AND related_event_uid = :uid');
+                $returns->execute(['aid' => (int)$attempt['id'], 'uid' => $metadata['event_uid']]);
+                foreach ($returns->fetchAll() as $return) {
+                    if ($return['absence_uid'] !== $metadata['absence_uid'] || $return['source'] !== $metadata['source']) { throw new RuntimeException('invalid_event_relation'); }
+                }
+            }
             if (in_array($type, ['finish', 'resume'], true) && $session['state'] !== 'running') {
                 throw new RuntimeException('session_not_running');
             }
-            $isIncident = $this->eventIsIncident($session, $type, $awaySeconds);
-            if ($isIncident) {
+            if ($metadata['absence_uid'] !== null) {
+                $group = $this->db->prepare('SELECT MAX(excused) AS excused, MIN(tracking_generation) AS generation, MAX(tracking_generation) AS last_generation FROM quiz_events WHERE attempt_id = :aid AND absence_uid = :absence');
+                $group->execute(['aid' => (int)$attempt['id'], 'absence' => $metadata['absence_uid']]);
+                $episode = $group->fetch();
+                if ($episode['generation'] !== $metadata['tracking_generation'] || $episode['last_generation'] !== $metadata['tracking_generation']) { throw new RuntimeException('absence_generation_conflict'); }
+                if (!empty($episode['excused'])) {
+                    $excuse = $this->db->prepare('UPDATE quiz_events SET excused = 1 WHERE attempt_id = :aid AND absence_uid = :absence');
+                    $excuse->execute(['aid' => (int)$attempt['id'], 'absence' => $metadata['absence_uid']]);
+                }
+                $this->reclassifyEvents($session, (int)$attempt['id'], $metadata['absence_uid']);
+                $read = $this->db->prepare('SELECT is_incident FROM quiz_events WHERE id = :id');
+                $read->execute(['id' => $eventId]);
+                $isIncident = (int)$read->fetchColumn() === 1;
+            } else {
+                $isIncident = $this->eventIsIncident($session, $type, $awaySeconds, $metadata['duration_ms']);
+            }
+            if ($isIncident && $metadata['absence_uid'] === null) {
                 $stmt = $this->db->prepare('UPDATE quiz_events SET is_incident = 1 WHERE id = :id');
                 $stmt->execute(['id' => $eventId]);
             }
@@ -820,7 +891,7 @@ class QuizService
             $result = $this->recomputeAttemptStatus((int)$attempt['id'], (int)$session['id']);
             $currentAttempt = $this->getAttempt((int)$attempt['id']);
             $this->db->commit();
-            return array_merge($result, ['is_incident' => $isIncident, 'finished' => !empty($currentAttempt['finished_at'])]);
+            return array_merge($result, ['is_incident' => $isIncident, 'finished' => !empty($currentAttempt['finished_at']), 'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => false]);
         } catch (Throwable $exception) {
             if ($this->db->inTransaction()) { $this->db->rollBack(); }
             throw $exception;
@@ -828,7 +899,7 @@ class QuizService
     }
 
     /** Shared qualification for new records and reclassification of history. */
-    private function eventIsIncident(array $session, string $type, int $awaySeconds): bool
+    private function eventIsIncident(array $session, string $type, int $awaySeconds, ?int $durationMs = null): bool
     {
         if ($type === 'reload') {
             return !empty($session['reload_is_incident']);
@@ -837,7 +908,61 @@ class QuizService
             return false;
         }
         return in_array($type, ['hidden', 'blur', 'fullscreen_exit'], true)
-            && $awaySeconds >= (int)$session['min_away_seconds'];
+            && ($durationMs !== null ? $durationMs >= (int)$session['min_away_seconds'] * 1000 : $awaySeconds >= (int)$session['min_away_seconds']);
+    }
+
+    /** Raw source durations never merge: select one eligible return per episode. */
+    private function reclassifyEvents(array $session, ?int $attemptId = null, ?string $absenceUid = null): void
+    {
+        $sql = 'SELECT e.* FROM quiz_events e JOIN quiz_attempts a ON a.id = e.attempt_id WHERE a.session_id = :sid';
+        $parameters = ['sid' => (int)$session['id']];
+        if ($attemptId !== null) { $sql .= ' AND e.attempt_id = :aid'; $parameters['aid'] = $attemptId; }
+        if ($absenceUid !== null) { $sql .= ' AND e.absence_uid = :absence'; $parameters['absence'] = $absenceUid; }
+        $stmt = $this->db->prepare($sql . ' ORDER BY e.id');
+        $stmt->execute($parameters);
+        $update = $this->db->prepare('UPDATE quiz_events SET is_incident = :incident WHERE id = :id');
+        $qualified = [];
+        foreach ($stmt->fetchAll() as $event) {
+            $incident = $this->eventIsIncident($session, (string)$event['event_type'], (int)$event['away_seconds'], $event['duration_ms'] !== null ? (int)$event['duration_ms'] : null);
+            if ($event['absence_uid'] !== null) {
+                $group = $event['attempt_id'] . ':' . $event['absence_uid'];
+                if (isset($qualified[$group])) { $incident = false; }
+                if ($incident) { $qualified[$group] = true; }
+            }
+            $update->execute(['incident' => $incident ? 1 : 0, 'id' => (int)$event['id']]);
+        }
+    }
+
+    private function normalizeEventMetadata(string $type, array $data, int $attemptId): array
+    {
+        $empty = array_fill_keys(['event_uid', 'absence_uid', 'source', 'related_event_uid', 'duration_ms', 'dropped_events', 'tracking_generation'], null);
+        if ($data === []) {
+            if (in_array($type, ['away_start', 'tracking_diagnostic'], true)) { throw new RuntimeException('invalid_event_metadata'); }
+            return $empty;
+        }
+        foreach (array_keys($data) as $key) {
+            if (!array_key_exists($key, $empty) && $key !== 'attempt_id') { throw new RuntimeException('invalid_event_metadata'); }
+        }
+        $validUid = static fn($value): bool => is_string($value) && preg_match('/^[a-zA-Z0-9_-]{16,80}$/D', $value) === 1;
+        if (($data['attempt_id'] ?? null) !== $attemptId) { throw new RuntimeException('attempt_mismatch'); }
+        if (!$validUid($data['event_uid'] ?? null) || !is_string($data['tracking_generation'] ?? null) || preg_match('/^[a-f0-9]{32}$/D', $data['tracking_generation']) !== 1) { throw new RuntimeException('invalid_event_metadata'); }
+        $normalized = array_merge($empty, array_intersect_key($data, $empty));
+        if (!in_array($normalized['source'], ['hidden', 'blur', 'fullscreen_exit', 'shortcut', 'navigation', 'page', 'queue'], true)) { throw new RuntimeException('invalid_event_source'); }
+        $awaySource = in_array($type, ['away_start', 'hidden', 'blur', 'fullscreen_exit'], true);
+        if ($awaySource) {
+            if (!$validUid($normalized['absence_uid']) || !in_array($normalized['source'], ['hidden', 'blur', 'fullscreen_exit'], true)) { throw new RuntimeException('invalid_event_metadata'); }
+            if ($type === 'away_start') {
+                if ($normalized['duration_ms'] !== null || $normalized['related_event_uid'] !== null) { throw new RuntimeException('invalid_event_duration'); }
+            } elseif ($type !== $normalized['source'] || !$validUid($normalized['related_event_uid']) || !is_int($normalized['duration_ms']) || $normalized['duration_ms'] < 0 || $normalized['duration_ms'] > 3600000) {
+                throw new RuntimeException('invalid_event_duration');
+            }
+        } elseif ($normalized['absence_uid'] !== null || $normalized['related_event_uid'] !== null || $normalized['duration_ms'] !== null) {
+            throw new RuntimeException('invalid_event_metadata');
+        }
+        if ($type === 'tracking_diagnostic') {
+            if ($normalized['source'] !== 'queue' || !is_int($normalized['dropped_events']) || $normalized['dropped_events'] < 1 || $normalized['dropped_events'] > 100000) { throw new RuntimeException('invalid_diagnostic'); }
+        } elseif ($normalized['dropped_events'] !== null) { throw new RuntimeException('invalid_diagnostic'); }
+        return $normalized;
     }
 
     /** No schema change: this version follows only incident rules and quota. */
@@ -876,6 +1001,8 @@ class QuizService
         }
 
         if ($attempt !== null) {
+            $payload['attempt_id'] = (int)$attempt['id'];
+            $payload['tracking_generation'] = (string)($session['tracking_generation'] ?? '');
             $payload['incident_count'] = (int)$attempt['incident_count'];
             $payload['attempt_status'] = $attempt['status'];
             $payload['finished'] = !empty($attempt['finished_at']);
@@ -919,12 +1046,12 @@ class QuizService
         $events = $this->listEvents($sessionId);
 
         $out = fopen('php://temp', 'r+');
-        fputcsv($out, ['type', 'nom', 'prenom', 'code', 'token', 'email', 'fin_declaree_a', 'reponses_google_forms', 'statut', 'incidents', 'rejoint_a', 'dernier_heartbeat', 'evenement', 'duree_absence_s', 'date'], ';');
+        fputcsv($out, ['type', 'nom', 'prenom', 'code', 'token', 'email', 'fin_declaree_a', 'reponses_google_forms', 'statut', 'incidents', 'rejoint_a', 'dernier_heartbeat', 'evenement', 'duree_absence_s', 'reception_serveur', 'source', 'duree_absence_ms', 'precision', 'episode', 'event_uid', 'depart_uid', 'traces_perdues', 'generation'], ';', '"', '');
         foreach ($attempts as $a) {
-            fputcsv($out, ['tentative', $a['last_name'], $a['first_name'], $a['code'], $a['public_token'], $a['email'], $this->toParisTime($a['finished_at']), 'non vérifiées dans Quiz', $a['status'], $a['incident_count'], $this->toParisTime($a['started_at']), $this->toParisTime($a['last_heartbeat_at']), '', '', ''], ';');
+            fputcsv($out, ['tentative', $a['last_name'], $a['first_name'], $a['code'], $a['public_token'], $a['email'], $this->toParisTime($a['finished_at']), 'non vérifiées dans Quiz', $a['status'], $a['incident_count'], $this->toParisTime($a['started_at']), $this->toParisTime($a['last_heartbeat_at']), '', '', '', '', '', '', '', '', '', '', ''], ';', '"', '');
         }
         foreach ($events as $e) {
-            fputcsv($out, ['evenement', $e['last_name'], $e['first_name'], '', '', '', '', '', '', '', '', '', $e['event_type'] . ($e['is_incident'] ? (!empty($e['excused']) ? ' (incident excusé)' : ' (incident)') : ''), $e['away_seconds'], $this->toParisTime($e['created_at'])], ';');
+            fputcsv($out, ['evenement', $e['last_name'], $e['first_name'], '', '', '', '', '', '', '', '', '', $e['event_type'] . ($e['is_incident'] ? (!empty($e['excused']) ? ' (incident excusé)' : ' (incident)') : ''), $e['event_type'] === 'away_start' ? '' : $e['away_seconds'], $this->toParisTime($e['created_at']), $e['source'], $e['duration_ms'], $e['event_type'] === 'away_start' ? 'inconnue' : ($e['duration_ms'] !== null ? ((int)$e['duration_ms'] >= 3600000 ? 'ms_minimum' : 'ms') : 's'), $e['absence_uid'], $e['event_uid'], $e['related_event_uid'], $e['dropped_events'], $e['tracking_generation']], ';', '"', '');
         }
         rewind($out);
         $csv = stream_get_contents($out) ?: '';
@@ -945,11 +1072,11 @@ class QuizService
         return $session;
     }
 
-    private function insertEvent(int $attemptId, string $type, int $awaySeconds, bool $isIncident): void
+    private function insertEvent(int $attemptId, string $type, int $awaySeconds, bool $isIncident, array $metadata = []): bool
     {
         $stmt = $this->db->prepare(
-            'INSERT INTO quiz_events (attempt_id, event_type, away_seconds, is_incident, created_at)
-             VALUES (:aid, :type, :away, :incident, :now)'
+            ($metadata['event_uid'] ?? null ? 'INSERT OR IGNORE' : 'INSERT') . ' INTO quiz_events (attempt_id, event_type, away_seconds, is_incident, created_at, event_uid, absence_uid, source, related_event_uid, duration_ms, dropped_events, tracking_generation)
+             VALUES (:aid, :type, :away, :incident, :now, :uid, :absence, :source, :related, :duration, :dropped, :generation)'
         );
         $stmt->execute([
             'aid' => $attemptId,
@@ -957,7 +1084,12 @@ class QuizService
             'away' => $awaySeconds,
             'incident' => $isIncident ? 1 : 0,
             'now' => $this->now(),
+            'uid' => $metadata['event_uid'] ?? null, 'absence' => $metadata['absence_uid'] ?? null,
+            'source' => $metadata['source'] ?? null, 'related' => $metadata['related_event_uid'] ?? null,
+            'duration' => $metadata['duration_ms'] ?? null, 'dropped' => $metadata['dropped_events'] ?? null,
+            'generation' => $metadata['tracking_generation'] ?? null,
         ]);
+        return $stmt->rowCount() > 0;
     }
 
     private function generateAttemptToken(): string

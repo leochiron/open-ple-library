@@ -49,7 +49,7 @@ class Element {
     querySelector(selector) { return this.parts?.[selector] || null; }
 }
 
-function harness(html, initial) {
+function harness(html, initial, storage = new Map()) {
     const elements = new Map();
     for (const match of html.matchAll(/<[^>]*\bid="([^"]+)"[^>]*>/g)) {
         const el = new Element(match[1]);
@@ -86,16 +86,24 @@ function harness(html, initial) {
     const requests = [];
     let nextId = 0;
     let now = Date.now();
+    let monotone = 0;
     let state = initial;
+    let stateStatus = 200;
     let completion = null;
     let eventFeed = { events: [] };
+    let eventResponse = null;
     const schedule = (fn, delay, repeat) => {
         timers.set(++nextId, { fn, delay, repeat });
         return nextId;
     };
     const context = vm.createContext({
         window, document, navigator: { sendBeacon: () => false },
-        performance: { getEntriesByType: () => [{ type: 'navigate' }] },
+        performance: { now: () => monotone, getEntriesByType: () => [{ type: 'navigate' }] },
+        sessionStorage: {
+            get length() { return storage.size; }, key: index => [...storage.keys()][index],
+            getItem: key => storage.get(key) || null,
+            setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key),
+        },
         Blob, AbortController,
         Date: class extends Date { static now() { return now; } },
         setTimeout: (fn, delay) => schedule(fn, delay, false),
@@ -107,19 +115,23 @@ function harness(html, initial) {
                 const event = JSON.parse(options.body);
                 events.push(event);
                 if (['finish', 'resume'].includes(event.type) && completion) { return completion; }
-                return Promise.resolve({ ok: true, json: async () => ({ incident_count: 0, status: 'started', is_incident: false }) });
+                if (eventResponse) { return eventResponse(event); }
+                return Promise.resolve({ ok: true, status: 200, json: async () => ({ incident_count: 0, status: 'started', is_incident: false, event_uid: event.event_uid, attempt_id: event.attempt_id }) });
             }
             const response = url.includes('/events') ? eventFeed
                 : url.includes('/heartbeat') ? { ok: true } : state;
-            return Promise.resolve({ status: 200, ok: true, json: async () => response });
+            return Promise.resolve({ status: stateStatus, ok: stateStatus === 200, json: async () => response });
         },
     });
     return {
-        context, document, elements, rows, events, requests,
+        context, document, window, elements, rows, events, requests, storage,
+        setEventResponse: value => { eventResponse = value; },
         setEventFeed: value => { eventFeed = value; },
         setState: value => { state = value; },
+        setStateStatus: value => { stateStatus = value; },
         setCompletion: value => { completion = value; },
-        advance: ms => { now += ms; },
+        advance: ms => { now += ms; monotone += ms; },
+        jumpClock: ms => { now += ms; },
         run: source => vm.runInContext(source, context),
         tick: async delay => {
             const scheduled = [...timers].filter(([, timer]) => timer.delay === delay);
@@ -139,6 +151,7 @@ function inlineScripts(html) {
 
 function state(overrides = {}) {
     return {
+        attempt_id: 1, tracking_generation: 'a'.repeat(32),
         state: 'running', title: 'Updated quiz', server_now: Math.floor(Date.now() / 1000), remaining_seconds: 1200,
         duration_minutes: 20, max_incidents: 3, min_away_seconds: 5, require_fullscreen: true, reload_is_incident: true,
         incident_count: 2, attempt_status: 'suspect', finished: false,
@@ -151,6 +164,7 @@ async function studentTest() {
     const html = render('room');
     const h = harness(html, state());
     inlineScripts(html).forEach(h.run);
+    h.run(fs.readFileSync(path.join(root, 'public/assets/js/quiz-journal.js'), 'utf8'));
     h.run(fs.readFileSync(path.join(root, 'public/assets/js/quiz-monitor.js'), 'utf8'));
     const el = id => h.elements.get(id);
     const wrap = el('quiz-iframe-wrap');
@@ -181,12 +195,12 @@ async function studentTest() {
     await h.tick(15000);
     el('quiz-fullscreen-btn').emit('click');
     await flush();
-    assert.equal(h.events.filter(e => e.type === 'fullscreen_exit').length, 0, 'Disabling rule cancels the old exit interval');
+    assert.equal(h.events.filter(e => e.type === 'fullscreen_exit').length, 1, 'Journal keeps the factual fullscreen interval across rule changes');
     h.document.exitFullscreen();
     h.advance(7000);
     el('quiz-fullscreen-btn').emit('click');
     await flush();
-    assert.equal(h.events.filter(e => e.type === 'fullscreen_exit').length, 1, 'Reenabled listener reports the next genuine fullscreen exit');
+    assert.equal(h.events.filter(e => e.type === 'fullscreen_exit').length, 2, 'Reenabled listener reports the next genuine fullscreen exit');
 
     let acknowledge;
     h.setCompletion(new Promise(resolve => { acknowledge = resolve; }));
@@ -198,7 +212,8 @@ async function studentTest() {
     h.setState(state({ finished: true }));
     await h.tick(15000);
     assert.equal(el('quiz-exam').hidden, false, 'Poll during pending finish cannot commit local completion');
-    acknowledge({ ok: true, json: async () => ({ finished: true }) });
+    const finishRequest = h.events.find(e => e.type === 'finish');
+    acknowledge({ ok: true, json: async () => ({ finished: true, event_uid: finishRequest.event_uid, attempt_id: 1 }) });
     await flush();
     assert.equal(el('quiz-exam').hidden, true);
     assert.equal(el('quiz-finished').hidden, false);
@@ -207,7 +222,8 @@ async function studentTest() {
     await h.tick(15000);
     assert.equal(el('quiz-incidents-max').textContent, '4', 'Finished student still receives updated rules');
     assert.equal(el('quiz-exam').hidden, true, 'Settings poll does not reopen a finished Form');
-    h.setCompletion(Promise.resolve({ ok: true, json: async () => ({ finished: false }) }));
+    h.setCompletion(null);
+    h.setEventResponse(event => Promise.resolve({ ok: true, json: async () => ({ finished: false, event_uid: event.event_uid, attempt_id: 1 }) }));
     el('quiz-resume-btn').emit('click');
     await flush();
     assert.equal(el('quiz-exam').hidden, false, 'Acknowledged resume reopens the existing quiz');
@@ -279,10 +295,11 @@ async function feedReconciliationTest() {
     assert.equal(tbody.innerHTML.includes('qa-feed-empty'), true, 'Empty feed has a visible empty-state row');
 }
 
-(async () => {
+if (require.main === module) { (async () => {
     await studentTest();
     await teacherTest('board', 3000, 'qb');
     await teacherTest('session', 5000, 'qa');
     await feedReconciliationTest();
     process.stdout.write('QuizLiveSettingsJsTest: OK (room, board, teacher session, feed reconciliation)\n');
-})().catch(error => { console.error(error); process.exitCode = 1; });
+})().catch(error => { console.error(error); process.exitCode = 1; }); }
+module.exports = { harness, render, inlineScripts, state, flush, root };

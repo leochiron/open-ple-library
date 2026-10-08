@@ -61,7 +61,7 @@ class QuizController
             if (strpos($subPath, '/api/') === 0) {
                 http_response_code(500);
                 header('Content-Type: application/json; charset=utf-8');
-                echo json_encode(['error' => 'server_error']);
+                echo json_encode(['error' => 'access_unavailable']);
             } else {
                 http_response_code(500);
                 echo 'Erreur interne.';
@@ -148,20 +148,30 @@ class QuizController
         $context = $this->requireApiContext();
         [$session, $attempt] = $context;
 
-        $raw = file_get_contents('php://input') ?: '';
+        $raw = file_get_contents('php://input', false, null, 0, 4097) ?: '';
+        if (strlen($raw) > 4096) { $this->json(['error' => 'access_unavailable'], 413); return; }
         $data = json_decode($raw, true);
         if (!is_array($data)) {
             // sendBeacon may post as form data
             $data = $_POST;
         }
 
-        $type = (string)($data['type'] ?? '');
+        if (!is_string($data['type'] ?? null) || (isset($data['away_seconds']) && !is_int($data['away_seconds']) && !(is_string($data['away_seconds']) && ctype_digit($data['away_seconds'])))) {
+            $this->json(['error' => 'access_unavailable'], 400);
+            return;
+        }
+        $type = $data['type'];
         $awaySeconds = (int)($data['away_seconds'] ?? 0);
 
         try {
-            $result = $this->quiz->recordEvent($session, $attempt, $type, $awaySeconds);
+            $metadata = array_diff_key($data, ['type' => true, 'away_seconds' => true]);
+            $result = $this->quiz->recordEvent($session, $attempt, $type, $awaySeconds, $metadata);
+        } catch (\PDOException $e) {
+            $this->json(['error' => 'access_unavailable'], 503);
+            return;
         } catch (RuntimeException $e) {
-            $this->json(['error' => 'invalid_event'], 400);
+            $bindingError = in_array($e->getMessage(), ['attempt_mismatch', 'stale_generation'], true);
+            $this->json(['error' => 'access_unavailable'], $bindingError ? 409 : 400);
             return;
         }
 
@@ -196,7 +206,11 @@ class QuizController
     {
         $context = $this->currentContext();
         if ($context === null) {
-            $this->json(['error' => 'no_attempt'], 401);
+            $this->json(['error' => 'access_unavailable'], 401);
+            exit;
+        }
+        if (isset($_GET['attempt_id']) && (!is_scalar($_GET['attempt_id']) || !ctype_digit((string)$_GET['attempt_id']) || (int)$_GET['attempt_id'] !== (int)$context[1]['id'])) {
+            $this->json(['error' => 'access_unavailable'], 409);
             exit;
         }
         return $context;

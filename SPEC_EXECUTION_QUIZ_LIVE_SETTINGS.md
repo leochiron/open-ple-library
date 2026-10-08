@@ -10,7 +10,7 @@ Une modification des règles est appliquée au prochain rafraîchissement de la 
 
 - Payload partagé élève/formateur : titre, durée, quota d'incidents, seuil hors page, plein écran obligatoire, règle de rechargement, état et horloge serveur. Nombres entiers et booléens explicites.
 - Actualisation des règles affichées et du quota élève ; le tableau projeté utilise le quota courant pour sa couleur d'alerte.
-- Écouteurs et bouton plein écran disponibles même si la règle était désactivée à l'ouverture. Activer la règle ouvre le contrôle ; la désactiver le masque et abandonne l'ancienne durée de sortie plein écran.
+- Écouteurs et bouton plein écran disponibles même si la règle était désactivée à l'ouverture. Activer la règle ouvre le contrôle ; la désactiver le masque. Le lot 3a remplace l'abandon de la durée ouverte par sa conservation factuelle jusqu'au retour réel ; sa qualification suit les règles actuelles.
 - Une tentative terminée reste terminée. Fin et reprise continuent d'attendre l'accusé serveur. La reprise conserve le formulaire déjà ouvert.
 - Une nouvelle URL Forms est utilisée à la prochaine ouverture du questionnaire ; elle ne remplace jamais silencieusement le questionnaire déjà affiché.
 
@@ -25,7 +25,7 @@ Aucune migration, modification de configuration ou donnée de production.
 ## Validation locale
 
 - `QuizLiveSettingsTest.php` : deux tentatives, paramètres modifiés puis désactivés, horloge serveur, payload commun et endpoint formateur réel, fin préservée et reprise.
-- `QuizLiveSettingsJsTest.js` : pages réellement rendues en PHP, moniteur et scripts formateur exécutés en VM avec navigateur simulé. Activation/désactivation/réactivation du plein écran, annulation de l'ancien intervalle, quota et chronomètre, attente d'accusé de fin, reprise, iframe et saisie conservées, couleurs du tableau et champs d'édition non écrasés.
+- `QuizLiveSettingsJsTest.js` : pages réellement rendues en PHP, moniteur et scripts formateur exécutés en VM avec navigateur simulé. Activation/désactivation/réactivation du plein écran, durée factuelle conservée selon le lot 3a, quota et chronomètre, attente d'accusé de fin, reprise, iframe et saisie conservées, couleurs du tableau et champs d'édition non écrasés.
 - Syntaxe PHP/JavaScript et suite existante profil, routage, authentification, isolation et protection des contenus.
 
 La VM vérifie les interactions du code ; elle ne remplace pas la recette de plein écran dans un vrai navigateur.

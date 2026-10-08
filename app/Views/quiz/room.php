@@ -17,6 +17,8 @@ $studentName = trim((string)$attempt['first_name'] . ' ' . (string)$attempt['las
 $assetBase = assetBase();
 $jsVersionPath = __DIR__ . '/../../../public/assets/js/quiz-monitor.js';
 $jsVersion = is_file($jsVersionPath) ? filemtime($jsVersionPath) : time();
+$journalVersionPath = __DIR__ . '/../../../public/assets/js/quiz-journal.js';
+$journalVersion = is_file($journalVersionPath) ? filemtime($journalVersionPath) : time();
 $cssVersionPath = __DIR__ . '/../../../public/assets/css/quiz.css';
 $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
 ?>
@@ -48,6 +50,7 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
 </header>
 
 <main class="quiz-room__main">
+    <p id="quiz-tracking-status" class="quiz-hint" role="status" hidden></p>
     <h2 class="quiz-student-heading"><?php echo htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8'); ?></h2>
     <p class="quiz-hint">
         <span id="quiz-rule-duration_minutes"><?php echo (int)$session['duration_minutes']; ?></span> min
@@ -133,6 +136,7 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
 
 <script>
     window.QUIZ_ROOM = {
+        attemptId: <?php echo (int)$attempt['id']; ?>,
         state: <?php echo json_encode($state); ?>,
         endpoints: {
             state: '/quiz/api/state',
@@ -148,10 +152,12 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
             keyWarning: <?php echo json_encode($i18n->t('quiz.room.key_warning')); ?>,
             finishConfirm: <?php echo json_encode($i18n->t('quiz.room.finish_confirm')); ?>,
             finishPending: <?php echo json_encode($i18n->t('quiz.room.finish_pending')); ?>,
-            finishError: <?php echo json_encode($i18n->t('quiz.room.finish_error')); ?>
+            finishError: <?php echo json_encode($i18n->t('quiz.room.finish_error')); ?>,
+            trackingDetached: <?php echo json_encode($i18n->t('quiz.journal.detached')); ?>
         }
     };
 </script>
+<script src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/js/quiz-journal.js?v=<?php echo $journalVersion; ?>"></script>
 <script src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/js/quiz-monitor.js?v=<?php echo $jsVersion; ?>"></script>
 </body>
 </html>

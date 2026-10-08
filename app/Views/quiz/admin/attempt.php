@@ -57,6 +57,7 @@ $overQuota = (int)$attempt['incident_count'] >= $maxIncidents;
         <?php if (count($events) === 0): ?>
             <p><?php echo htmlspecialchars($i18n->t('quiz.admin.no_events'), ENT_QUOTES, 'UTF-8'); ?></p>
         <?php else: ?>
+            <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.journal.received_time'), ENT_QUOTES, 'UTF-8'); ?></p>
             <table class="quiz-table">
                 <thead>
                     <tr>
@@ -75,7 +76,7 @@ $overQuota = (int)$attempt['incident_count'] >= $maxIncidents;
                         ?>
                         <tr class="<?php echo $rowClass; ?>">
                             <td>
-                                <?php echo htmlspecialchars($e['event_type'], ENT_QUOTES, 'UTF-8'); ?>
+                                <?php echo htmlspecialchars(quizEventLabel($e, $i18n), ENT_QUOTES, 'UTF-8'); ?>
                                 <?php if ($isIncident): ?>
                                     <?php echo $isExcused ? '✓' : ' ⚠️'; ?>
                                     <?php if ($isExcused): ?>
@@ -83,7 +84,7 @@ $overQuota = (int)$attempt['incident_count'] >= $maxIncidents;
                                     <?php endif; ?>
                                 <?php endif; ?>
                             </td>
-                            <td><?php echo (int)$e['away_seconds']; ?>s</td>
+                            <td><?php echo htmlspecialchars(quizEventDuration($e), ENT_QUOTES, 'UTF-8'); ?></td>
                             <td><?php echo htmlspecialchars(formatParisTime($e['created_at']), ENT_QUOTES, 'UTF-8'); ?></td>
                             <td>
                                 <?php if ($isIncident): ?>
