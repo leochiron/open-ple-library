@@ -867,17 +867,17 @@ class QuizService
         if ($attempt === null || (int)$attempt['session_id'] !== $sessionId || (int)$attempt['student_id'] !== $studentId) { $attemptId = null; }
         $ref = null;
         $session = $this->requireSession($sessionId);
-        if ($session['tracking_mode'] === 'preflight') {
+        if (self::trackingStrengthened($session['tracking_mode'])) {
             if ($attempt === null) { throw new RuntimeException('attempt_mismatch'); }
             $ref = $this->trackingBoundContext($session, $attempt)['context_ref'];
         }
         return ['session_id' => $sessionId, 'student_id' => $studentId, 'attempt_id' => $attemptId, 'tracking_generation' => $generation, 'context_ref' => $ref];
     }
 
-    /** Only 5a tracking preflight is active; browser checks remain reserved for6. */
+    /** Strengthened tracking is contextual; browser checks remain reserved for6. */
     protected function currentTechnicalCauses(array $context): array
     {
-        if ($this->requireSession((int)$context['session_id'])['tracking_mode'] !== 'preflight') { return []; }
+        if (!self::trackingStrengthened($this->requireSession((int)$context['session_id'])['tracking_mode'])) { return []; }
         $stmt = $this->db->prepare('SELECT * FROM quiz_tracking_contexts WHERE context_ref=:ref'); $stmt->execute(['ref'=>$context['context_ref']]);
         $row = $stmt->fetch();
         if ($row === false || $row['status'] !== 'active') { throw new RuntimeException('cookie_context_mismatch'); }
@@ -1044,10 +1044,10 @@ class QuizService
             if ($metadata['event_uid'] !== null && !hash_equals((string)$session['tracking_generation'], (string)$metadata['tracking_generation'])) {
                 throw new RuntimeException('stale_generation');
             }
-            $trackingObservation = $session['tracking_mode'] === 'preflight' && !in_array($type,['finish','resume'],true);
+            $trackingObservation = self::trackingStrengthened($session['tracking_mode']) && !in_array($type,['finish','resume'],true);
             if (in_array($type, ['finish', 'resume'], true)) {
-                if($session['tracking_mode']==='preflight' && $metadata['event_uid']===null){throw new RuntimeException('generation_mismatch');}
-                if($session['tracking_mode']==='preflight'){$this->trackingBoundContext($session,$currentAttempt);}
+                if(self::trackingStrengthened($session['tracking_mode']) && $metadata['event_uid']===null){throw new RuntimeException('generation_mismatch');}
+                if(self::trackingStrengthened($session['tracking_mode'])){$this->trackingBoundContext($session,$currentAttempt);}
                 if (!$this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id'])) {
                     $state = $this->buildStatePayload($session, $currentAttempt);
                     $this->db->commit();
@@ -1263,7 +1263,7 @@ class QuizService
             $payload['access_allowed'] = $this->studentAccessAllowed((int)$session['id'], (int)$attempt['student_id']);
             $payload['tracking_mode'] = $session['tracking_mode'];
             $payload['access_until'] = null;
-            if ($session['tracking_mode'] === 'preflight') {
+            if (self::trackingStrengthened($session['tracking_mode'])) {
                 $context=$this->trackingBoundContext($session,$attempt);
                 if ($payload['access_allowed']) {
                     $context=$this->trackingExpireProof($context);

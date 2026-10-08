@@ -7,12 +7,19 @@ use PDO;
 use RuntimeException;
 use Throwable;
 
-/** Preflight only. Cookie/challenge/epoch secrets never enter private projections. */
+/** Preparation and continuous pulses. Binding secrets never enter private projections. */
 trait QuizTracking
 {
     private ?string $trackingRequestEpoch = null;
     private ?int $trackingDecisionTime = null;
     private const TRACKING_CHECKS = ['listener_roundtrip', 'trusted_enter_received', 'hidden_received', 'visible_after_hidden_received', 'focus_after_hidden_received', 'fullscreen_change_received', 'fullscreen_active'];
+    private const PULSE_CHECKS = ['listener_roundtrip', 'fullscreen_active'];
+
+    /** One predicate for every strengthened route/decision; off remains historical. */
+    public static function trackingStrengthened(string $mode): bool
+    {
+        return in_array($mode, ['preflight', 'continuous'], true);
+    }
 
     public function setTrackingRequestEpoch(?string $epoch): void
     {
@@ -129,7 +136,7 @@ trait QuizTracking
         $this->db->beginTransaction();
         try  {
             [$session,$attempt]=$this->trackingLock($sessionId,$attemptId);
-            if ($session['tracking_mode']==='preflight')  {
+            if (self::trackingStrengthened($session['tracking_mode']))  {
                 $this->trackingBoundContext($session,$attempt,true);
             }
             $result=$this->buildStatePayload($session,$attempt);
@@ -149,7 +156,7 @@ trait QuizTracking
         $this->db->beginTransaction();
         try  {
             [$session,$attempt]=$this->trackingLock($sessionId,$attemptId);
-            if ($session['tracking_mode']!=='preflight' || $session['state']!=='running')  {
+            if (!self::trackingStrengthened($session['tracking_mode']) || $session['state']!=='running')  {
                 throw new RuntimeException('invalid_tracking_state');
             }
             if (!hash_equals($session['tracking_generation'],$expectedGeneration))  {
@@ -189,7 +196,7 @@ trait QuizTracking
         $this->db->beginTransaction();
         try  {
             [$session,$attempt]=$this->trackingLock($sessionId,$attemptId);
-            if($session['tracking_mode']!=='preflight'||$session['state']!=='running') {
+            if(!self::trackingStrengthened($session['tracking_mode'])||$session['state']!=='running') {
                 throw new RuntimeException('invalid_tracking_state');
             }
             if(!hash_equals($session['tracking_generation'],$expectedGeneration)) {
@@ -202,6 +209,7 @@ trait QuizTracking
             if($row===false) {
                 throw new RuntimeException('challenge_mismatch');
             }
+            if ($row['kind'] !== 'preflight') { throw new RuntimeException('challenge_kind_mismatch'); }
             if($row['consumed_at']!==null) {
                 throw new RuntimeException('challenge_replayed');
             }
@@ -228,7 +236,7 @@ trait QuizTracking
             }
             $json=json_encode($checks,JSON_THROW_ON_ERROR);
             $until=$healthy?$this->trackingClock()+60:null;
-            $stmt=$this->db->prepare("UPDATE quiz_tracking_contexts SET phase='complete',proof_status=:status,proof_until=:until,proof_issued_at=:now,proof_incarnation=:inc,checks_json=:checks,proof_fullscreen_required=:fs WHERE id=:id");
+            $stmt=$this->db->prepare("UPDATE quiz_tracking_contexts SET phase='complete',proof_status=:status,proof_until=:until,proof_issued_at=:now,proof_incarnation=:inc,checks_json=:checks,proof_fullscreen_required=:fs,last_pulse_at=NULL,last_pulse_checks_json=NULL,last_pulse_outcome=NULL,last_pulse_until=NULL,last_pulse_fullscreen_required=NULL,pulse_failure_checks_json=NULL,pulse_failure_fullscreen_required=NULL WHERE id=:id");
             $stmt->execute(['status'=>$healthy?'healthy':'failed','until'=>$until,'now'=>$this->now(),'inc'=>bin2hex(random_bytes(16)),'checks'=>$json,'fs'=>(int)$session['require_fullscreen'],'id'=>$context['id']]);
             $this->trackingDiagnostic($context,$healthy?'preflight_healthy':'preflight_failed','preflight','client_reported',$checks);
             $result=$this->buildStatePayload($session,$attempt);
@@ -248,6 +256,7 @@ trait QuizTracking
             $stmt=$this->db->prepare("UPDATE quiz_tracking_contexts SET proof_status='expired',proof_until=NULL WHERE id=:id AND proof_status='healthy'");
             $stmt->execute(['id'=>$context['id']]);
             if($stmt->rowCount()===1) {
+                $this->trackingTerminatePending((int)$context['id'], 'pulse');
                 $this->trackingDiagnostic($context,'proof_expired','state','server_observed');
             }
             $context['proof_status']='expired';
@@ -256,10 +265,95 @@ trait QuizTracking
         return $context;
     }
 
+    private function trackingTerminatePending(int $contextId, ?string $kind = null): void
+    {
+        $stmt = $this->db->prepare('UPDATE quiz_tracking_challenges SET terminated_at=:now WHERE context_id=:id AND consumed_at IS NULL AND terminated_at IS NULL' . ($kind !== null ? ' AND kind=:kind' : ''));
+        $args = ['now' => $this->now(), 'id' => $contextId];
+        if ($kind !== null) { $args['kind'] = $kind; }
+        $stmt->execute($args);
+    }
+
+    public function createTrackingPulseChallenge(int $sessionId, int $attemptId, string $expectedGeneration, string $expectedRoomEpoch): array
+    {
+        $this->trackingRequestEpoch = $expectedRoomEpoch;
+        $this->db->beginTransaction();
+        try {
+            [$session, $attempt] = $this->trackingLock($sessionId, $attemptId);
+            if ($session['tracking_mode'] !== 'continuous' || $session['state'] !== 'running' || $attempt['finished_at'] !== null) { throw new RuntimeException('invalid_tracking_state'); }
+            if (!hash_equals($session['tracking_generation'], $expectedGeneration)) { throw new RuntimeException('generation_mismatch'); }
+            $context = $this->trackingExpireProof($this->trackingBoundContext($session, $attempt));
+            $this->trackingTerminatePending((int)$context['id']);
+            $secret = bin2hex(random_bytes(32)); $until = $this->trackingClock() + 120;
+            $purpose = $context['proof_status'] === 'healthy' ? 'renewing' : 'diagnostic_only';
+            $stmt = $this->db->prepare("INSERT INTO quiz_tracking_challenges(context_id,secret_hash,settings_revision,issued_at,expires_at,kind,purpose,proof_incarnation,proof_status_at_issue,fullscreen_required) VALUES(:id,:hash,:rev,:now,:until,'pulse',:purpose,:inc,:status,:fs)");
+            $stmt->execute(['id' => $context['id'], 'hash' => hash('sha256', $secret), 'rev' => $session['settings_revision'], 'now' => $this->now(), 'until' => $until, 'purpose' => $purpose, 'inc' => $context['proof_incarnation'], 'status' => $context['proof_status'], 'fs' => (int)$session['require_fullscreen']]);
+            $this->db->commit();
+            return ['challenge' => $secret, 'challenge_until' => $until];
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
+        }
+    }
+
+    public function submitTrackingPulse(int $sessionId, int $attemptId, string $expectedGeneration, string $expectedRoomEpoch, string $challenge, array $checks): array
+    {
+        if (count($checks) !== 2 || array_diff(array_keys($checks), self::PULSE_CHECKS) !== [] || preg_match('/^[a-f0-9]{64}$/D', $challenge) !== 1) { throw new RuntimeException('schema_invalid'); }
+        foreach (self::PULSE_CHECKS as $key) { if (!is_bool($checks[$key] ?? null)) { throw new RuntimeException('schema_invalid'); } }
+        $this->trackingRequestEpoch = $expectedRoomEpoch;
+        $this->db->beginTransaction();
+        try {
+            [$session, $attempt] = $this->trackingLock($sessionId, $attemptId);
+            if ($session['tracking_mode'] !== 'continuous' || $session['state'] !== 'running' || $attempt['finished_at'] !== null) { throw new RuntimeException('invalid_tracking_state'); }
+            if (!hash_equals($session['tracking_generation'], $expectedGeneration)) { throw new RuntimeException('generation_mismatch'); }
+            // Only a trusted bound context may expire before an expected protocol refusal.
+            $context = $this->trackingExpireProof($this->trackingBoundContext($session, $attempt));
+            $stmt = $this->db->prepare('SELECT * FROM quiz_tracking_challenges WHERE secret_hash=:hash AND context_id=:id');
+            $stmt->execute(['hash' => hash('sha256', $challenge), 'id' => $context['id']]); $row = $stmt->fetch();
+            $refusal = null;
+            if ($row === false) { $refusal = 'challenge_mismatch'; }
+            elseif ($row['kind'] !== 'pulse') { $refusal = 'challenge_kind_mismatch'; }
+            elseif ($row['consumed_at'] !== null) { $refusal = 'challenge_replayed'; }
+            elseif ($row['terminated_at'] !== null) { $refusal = 'challenge_terminated'; }
+            elseif ($this->trackingClock() >= (int)$row['expires_at']) { $refusal = 'challenge_expired'; }
+            elseif ((int)$row['settings_revision'] !== (int)$session['settings_revision'] || (int)$row['fullscreen_required'] !== (int)$session['require_fullscreen']) { $refusal = 'settings_revision_mismatch'; }
+            elseif ($row['proof_incarnation'] !== $context['proof_incarnation'] || $row['proof_status_at_issue'] !== $context['proof_status']) { $refusal = 'proof_incarnation_mismatch'; }
+            elseif (!in_array($row['purpose'], ['renewing', 'diagnostic_only'], true) || ($row['purpose'] === 'renewing' && $context['proof_status'] !== 'healthy')) { $refusal = 'proof_incarnation_mismatch'; }
+            if ($refusal !== null) {
+                // No consume/result/renew happened: retain only observed expiry and its pending fence.
+                $this->db->commit();
+                throw new RuntimeException($refusal);
+            }
+            $stmt = $this->db->prepare('UPDATE quiz_tracking_challenges SET consumed_at=:now WHERE id=:id');
+            $stmt->execute(['now' => $this->now(), 'id' => $row['id']]);
+            $healthy = $checks['listener_roundtrip'] && (!(bool)$session['require_fullscreen'] || $checks['fullscreen_active']);
+            $renewing = $row['purpose'] === 'renewing';
+            $outcome = $renewing ? ($healthy ? 'healthy' : 'failed') : 'diagnostic_only';
+            $until = $renewing && $healthy ? $this->trackingClock() + 60 : null;
+            $stmt = $this->db->prepare('UPDATE quiz_tracking_contexts SET last_pulse_at=:now,last_pulse_checks_json=:checks,last_pulse_outcome=:outcome,last_pulse_until=:until,last_pulse_fullscreen_required=:fs WHERE id=:id');
+            $stmt->execute(['now' => $this->now(), 'checks' => json_encode($checks, JSON_THROW_ON_ERROR), 'outcome' => $outcome, 'until' => $until, 'fs' => (int)$session['require_fullscreen'], 'id' => $context['id']]);
+            if ($renewing) {
+                $stmt = $this->db->prepare('UPDATE quiz_tracking_contexts SET proof_status=:status,proof_until=:until WHERE id=:id');
+                $stmt->execute(['status' => $healthy ? 'healthy' : 'failed', 'until' => $until, 'id' => $context['id']]);
+                if (!$healthy) {
+                    $stmt = $this->db->prepare('UPDATE quiz_tracking_contexts SET pulse_failure_checks_json=:checks,pulse_failure_fullscreen_required=:fs WHERE id=:id');
+                    $stmt->execute(['checks' => json_encode($checks, JSON_THROW_ON_ERROR), 'fs' => (int)$session['require_fullscreen'], 'id' => $context['id']]);
+                    $this->trackingTerminatePending((int)$context['id'], 'pulse');
+                }
+            }
+            $this->trackingDiagnostic($context, 'pulse_' . $outcome, 'pulse', 'client_reported', $checks);
+            $result = $this->buildStatePayload($session, $attempt);
+            $this->db->commit();
+            return $result;
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
+        }
+    }
+
     private function trackingDiagnostic(array $context,string $code,string $operation,string $provenance,?array $checks=null): void
     {
-        $codes=['proof_missing','proof_expired','preflight_healthy','preflight_failed','proof_terminated_new_launch','proof_terminated_stopped','proof_terminated_reset','proof_terminated_closed','proof_terminated_mode_changed','proof_terminated_fullscreen_added','challenge_expired','challenge_replayed','challenge_terminated','challenge_mismatch','document_epoch_mismatch','cookie_context_mismatch','attempt_mismatch','generation_mismatch','settings_revision_mismatch','schema_invalid','body_too_large','csrf_invalid','invalid_tracking_state','database_failure'];
-        if(!in_array($code,$codes,true)||!in_array($operation,['room','state','challenge','preflight','finish','resume','policy'],true)||!in_array($provenance,['client_reported','server_observed'],true)) {
+        $codes=['proof_missing','proof_expired','preflight_healthy','preflight_failed','pulse_healthy','pulse_failed','pulse_diagnostic_only','proof_terminated_new_launch','proof_terminated_stopped','proof_terminated_reset','proof_terminated_closed','proof_terminated_mode_changed','proof_terminated_fullscreen_added','challenge_kind_mismatch','proof_incarnation_mismatch','challenge_expired','challenge_replayed','challenge_terminated','challenge_mismatch','document_epoch_mismatch','cookie_context_mismatch','attempt_mismatch','generation_mismatch','settings_revision_mismatch','schema_invalid','body_too_large','csrf_invalid','invalid_tracking_state','database_failure'];
+        if(!in_array($code,$codes,true)||!in_array($operation,['room','state','challenge','preflight','pulse_challenge','pulse','finish','resume','policy'],true)||!in_array($provenance,['client_reported','server_observed'],true)) {
             throw new RuntimeException('invalid_tracking_diagnostic');
         }
         $json=$checks!==null?json_encode($checks,JSON_THROW_ON_ERROR):null;
@@ -272,11 +366,11 @@ trait QuizTracking
 
     public function recordTrackingRefusal(string $operation,string $code,?Throwable $error=null): void
     {
-        $allowed=['challenge_expired','challenge_replayed','challenge_terminated','challenge_mismatch','document_epoch_mismatch','cookie_context_mismatch','attempt_mismatch','generation_mismatch','settings_revision_mismatch','schema_invalid','body_too_large','csrf_invalid','invalid_tracking_state','database_failure'];
+        $allowed=['challenge_kind_mismatch','proof_incarnation_mismatch','challenge_expired','challenge_replayed','challenge_terminated','challenge_mismatch','document_epoch_mismatch','cookie_context_mismatch','attempt_mismatch','generation_mismatch','settings_revision_mismatch','schema_invalid','body_too_large','csrf_invalid','invalid_tracking_state','database_failure'];
         if(!in_array($code,$allowed,true)) {
             $code='schema_invalid';
         }
-        $operation=in_array($operation,['state','challenge','preflight','finish','resume','room'],true)?$operation:'state';
+        $operation=in_array($operation,['state','challenge','preflight','pulse_challenge','pulse','finish','resume','room'],true)?$operation:'state';
         $recorded=false;
         try {
             $context=$this->trackingCurrentContext();
@@ -315,7 +409,7 @@ trait QuizTracking
     {
         $this->currentAdminId();
         $reason=$this->normalizeAccessReason($reason);
-        if(!in_array($mode,['off','preflight'],true)) {
+        if(!in_array($mode,['off','preflight','continuous'],true)) {
             throw new RuntimeException('invalid_tracking_mode');
         }
         $this->db->beginTransaction();
@@ -343,10 +437,13 @@ trait QuizTracking
 
     private function privateTrackingContext(array $row): array
     {
-        $fields=['id','context_ref','session_id','student_id','attempt_id','tracking_generation','first_name','last_name','status','phase','created_at','terminated_at','termination_kind','proof_status','proof_until','proof_issued_at','proof_fullscreen_required','admitted_at','identity_truncated'];
+        $fields=['id','context_ref','session_id','student_id','attempt_id','tracking_generation','first_name','last_name','status','phase','created_at','terminated_at','termination_kind','proof_status','proof_until','proof_issued_at','proof_fullscreen_required','admitted_at','identity_truncated','last_pulse_at','last_pulse_outcome','last_pulse_until','last_pulse_fullscreen_required','pulse_failure_fullscreen_required'];
         $out=array_intersect_key($row,array_fill_keys($fields,true));
         $out['checks']=$row['checks_json']!==null?json_decode($row['checks_json'],true):null;
         $out['checks_provenance']=$out['checks']!==null?'client_reported':null;
+        $out['last_pulse_checks']=$row['last_pulse_checks_json']!==null?json_decode($row['last_pulse_checks_json'],true):null;
+        $out['last_pulse_provenance']=$out['last_pulse_checks']!==null?'client_reported':null;
+        $out['pulse_failure_checks']=$row['pulse_failure_checks_json']!==null?json_decode($row['pulse_failure_checks_json'],true):null;
         $out['causes']=[];
         if($row['proof_status']==='failed' && is_array($out['checks'])) {
             $mapping=['listener_roundtrip'=>'listener_probe_failed','trusted_enter_received'=>'enter_not_observed','hidden_received'=>'hidden_not_observed','visible_after_hidden_received'=>'return_not_observed','focus_after_hidden_received'=>'focus_not_observed'];
@@ -361,6 +458,12 @@ trait QuizTracking
             if(!$out['checks']['hidden_received'] && ($out['checks']['visible_after_hidden_received'] || $out['checks']['focus_after_hidden_received'])) {
                 $out['causes'][]='sequence_inconsistent';
             }
+            if (is_array($out['pulse_failure_checks'])) {
+                if (!$out['pulse_failure_checks']['listener_roundtrip']) { $out['causes'][]='listener_probe_failed'; }
+                if (!empty($row['pulse_failure_fullscreen_required']) && !$out['pulse_failure_checks']['fullscreen_active']) { $out['causes'][]='fullscreen_inactive'; }
+            }
+            $out['causes']=array_values(array_unique($out['causes']));
+            if ($out['causes']===[]) { $out['causes'][]='proof_failed'; }
         }elseif($row['proof_status']!=='healthy') {
             $out['causes'][]='proof_'.$row['proof_status'];
         }

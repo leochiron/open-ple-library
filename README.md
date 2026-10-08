@@ -475,11 +475,13 @@ php tests/QuizHistoryAuditTest.php
 php tests/QuizManualAccessTest.php
 php tests/QuizTechnicalOverrideTest.php
 php tests/QuizTrackingPreflightTest.php
+php tests/QuizTrackingContinuousTest.php
 node tests/QuizLiveSettingsJsTest.js
 node tests/QuizEventJournalJsTest.js
 node tests/QuizHistoryJsTest.js
 node tests/QuizManualAccessJsTest.js
 node tests/QuizTrackingPreflightJsTest.js
+node tests/QuizTrackingContinuousJsTest.js
 php tests/RouteIntegrationTest.php
 php tests/WebServerRulesTest.php
 ```
@@ -527,15 +529,15 @@ rollback, old/new snapshots, complete CSV, CSRF and ownership. The existing
 contract. See `SPEC_EXECUTION_QUIZ_TECHNICAL_OVERRIDE.md` for the 4b contract,
 additive schema and publication manifest.
 
-Increment 5a adds an opt-in `preflight` pilot; new and existing quizzes remain
-`off`. Its server-bound cookie/document contexts, one-use120-second challenges
-and strictly boolean reported checks provide a60-second proof and permission.
-There are no continuous pulses yet: the teacher UI warns that this pilot is for
-a fictitious session until5b and manual acceptance. A fresh room HTML never
-contains the Forms URL in preflight mode, including under a tracking override.
+Increment 5a adds an opt-in `preflight` pilot; new and existing quizzes default
+to `off`. Its server-bound cookie/document contexts, one-use 120-second challenges
+and strictly boolean reported checks provide a 60-second proof and permission.
+The preflight-only pilot does not renew this proof automatically. A fresh room
+HTML never contains the Forms URL in a strengthened mode, including under a tracking override.
 State adopts a new launch/reset generation on the same document epoch with no
 inherited proof. The public deadline uses a monotone browser guard and measured
-network delay; suspension preserves the same iframe and draft. A newer denial
+network delay; suspension preserves the same iframe and draft. The guard also
+reserves one second for the integer server clock and its 500ms tick. A newer denial
 cannot be overwritten by an older preflight/completion response.
 
 Preparation gestures only enter private diagnostics, never the ordinary event
@@ -550,6 +552,26 @@ cover TTL, replay, document/cookie/generation isolation, overrides, SQL rollback
 snapshot/CSV privacy, preparation separation and response ordering. Native
 Enter is also checked separately in Chromium; mock flags are not native gesture
 evidence. See `SPEC_EXECUTION_QUIZ_TRACKING_PREFLIGHT.md`.
+
+Increment 5b adds an explicit `continuous` mode without changing existing modes.
+Every 20 seconds, a fresh isolated `keydown` listener round trip through current
+methods and the current fullscreen state can renew a healthy proof that has not
+expired. The nonce is bound to that proof incarnation and its server-selected
+purpose; a diagnostic-only result never creates or repairs a healthy proof.
+At expiry, a complete new preflight is required. A tracking override preserves
+the reported failures and only changes the final permission; manual blocks
+remain absolute. Results are declared observations, not evidence of cheating.
+
+Pulses pause during full preparation through HTTP settlement, completion and
+finished attempts, and stop durably after document detachment. Their stable
+cadence survives state polling, and stale results cannot erase a newer denial.
+The ordinary journal remains independent during suspension. Private reports,
+reset snapshots and streamed CSV retain targeted pulse metadata and the complete
+append-only diagnostic journal without input values or binding secrets. PHP/VM
+tests cover incarnation/purpose, expiry before consumption, SQL rollback,
+single-flight requests, finished guards, isolation, ordering and the preserved
+iframe. See `SPEC_EXECUTION_QUIZ_TRACKING_CONTINUOUS.md` for schema and publication.
+Use a fictitious session and manual native-gesture acceptance before general use.
 
 PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
 therefore verifies the presence and ordering of every sensitive Apache rule when

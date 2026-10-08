@@ -18,7 +18,7 @@ $trackingEsc = static fn($value): string => htmlspecialchars((string)$value, ENT
             <p><?php echo $trackingEsc($i18n->t('quiz.history.nonce')); ?> : <code><?php echo $trackingEsc($trackingRow['tracking_generation']); ?></code></p>
             <?php if (!empty($trackingRow['identity_truncated'])): ?><p><?php echo $trackingEsc($i18n->t('quiz.preflight.identity_reduced')); ?></p><?php endif; ?>
             <table class="quiz-table"><tbody>
-                <?php foreach (['context_ref','status','phase','created_at','terminated_at','termination_kind','proof_status','proof_until','proof_issued_at','proof_fullscreen_required','admitted_at','checks_provenance'] as $trackingField): ?>
+                <?php foreach (['context_ref','status','phase','created_at','terminated_at','termination_kind','proof_status','proof_until','proof_issued_at','proof_fullscreen_required','admitted_at','checks_provenance','last_pulse_at','last_pulse_outcome','last_pulse_until','last_pulse_fullscreen_required','last_pulse_provenance'] as $trackingField): ?>
                     <tr><th><?php echo $trackingEsc($trackingField); ?></th><td><?php echo $trackingEsc($trackingRow[$trackingField] ?? '—'); ?></td></tr>
                 <?php endforeach; ?>
             </tbody></table>
@@ -28,6 +28,10 @@ $trackingEsc = static fn($value): string => htmlspecialchars((string)$value, ENT
                     <tr><th><?php echo $trackingEsc($trackingCheck); ?></th><td><?php echo $trackingValue === true ? 'true' : 'false'; ?></td></tr>
                 <?php endforeach; ?></tbody></table>
             <?php endif; ?>
+            <?php if (array_key_exists('last_pulse_checks', $trackingRow)): ?>
+                <p>last_pulse_checks : <code><?php echo $trackingEsc(json_encode($trackingRow['last_pulse_checks'])); ?></code><br>
+                    pulse_failure_checks : <code><?php echo $trackingEsc(json_encode($trackingRow['pulse_failure_checks'])); ?></code></p>
+            <?php else: ?><p><?php echo $trackingEsc($i18n->t('quiz.tracking.pulse_not_recorded')); ?></p><?php endif; ?>
         </details>
     <?php endforeach; unset($trackingRow, $trackingField, $trackingCheck, $trackingValue); ?>
     <?php if (($trackingContexts['next_before'] ?? null) !== null && !isset($archive)): ?>

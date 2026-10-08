@@ -56,6 +56,8 @@ class QuizController
                 $this->apiEvent();
             } elseif (in_array($subPath, ['/api/tracking/challenge','/api/tracking/preflight'],true) && $method === 'POST') {
                 $this->apiTracking($subPath === '/api/tracking/preflight');
+            } elseif (in_array($subPath, ['/api/tracking/pulse/challenge','/api/tracking/pulse'],true) && $method === 'POST') {
+                $this->apiTracking($subPath === '/api/tracking/pulse', true);
             } else {
                 http_response_code(404);
                 echo 'Not found';
@@ -135,7 +137,7 @@ class QuizController
 
         $roomEpoch = $this->quiz->openTrackingRoomDocument((int)$session['id'],(int)$attempt['id']);
         $state = $this->quiz->prepareTrackingState((int)$session['id'],(int)$attempt['id']);
-        if($state['tracking_mode']==='preflight'){unset($state['form_url']);}
+        if(QuizService::trackingStrengthened($state['tracking_mode'])){unset($state['form_url']);}
         $state['csrf_token'] = $this->csrfToken();
 
         // Standalone page (no site layout): the exam needs the full viewport.
@@ -169,7 +171,7 @@ class QuizController
 
         $raw = file_get_contents('php://input', false, null, 0, 4097) ?: '';
         if (strlen($raw) > 4096) {
-            if ($session['tracking_mode'] === 'preflight') { $this->trackingFailure('state', new RuntimeException('body_too_large')); }
+            if (QuizService::trackingStrengthened($session['tracking_mode'])) { $this->trackingFailure('state', new RuntimeException('body_too_large')); }
             else { $this->json(['error' => 'access_unavailable'], 413); }
             return;
         }
@@ -180,7 +182,7 @@ class QuizController
         }
 
         if (!$this->validCsrf($data)) {
-            if ($session['tracking_mode'] === 'preflight' && in_array($data['type'] ?? null, ['finish','resume'], true)) { $this->trackingFailure($data['type'], new RuntimeException('csrf_invalid')); }
+            if (QuizService::trackingStrengthened($session['tracking_mode']) && in_array($data['type'] ?? null, ['finish','resume'], true)) { $this->trackingFailure($data['type'], new RuntimeException('csrf_invalid')); }
             else { $this->json(['error' => 'access_unavailable'], 403); }
             return;
         }
@@ -197,27 +199,27 @@ class QuizController
             $metadata = array_diff_key($data, ['type' => true, 'away_seconds' => true, '_csrf' => true, 'room_epoch'=>true]);
             $result = $this->quiz->recordEvent($session, $attempt, $type, $awaySeconds, $metadata);
         } catch (\PDOException $e) {
-            if ($session['tracking_mode'] === 'preflight' && in_array($type, ['finish','resume'], true)) { $this->trackingFailure($type, $e); return; }
+            if (QuizService::trackingStrengthened($session['tracking_mode']) && in_array($type, ['finish','resume'], true)) { $this->trackingFailure($type, $e); return; }
             error_log(sprintf('Quiz event failed: session_id=%d; attempt_id=%d; message=%s; file=%s:%d',
                 (int)$session['id'], (int)$attempt['id'], str_replace(["\r", "\n"], ' ', mb_substr($e->getMessage(), 0, 512)), $e->getFile(), $e->getLine()));
             $this->json(['error' => 'access_unavailable'], 503);
             return;
         } catch (RuntimeException $e) {
-            if($session['tracking_mode']==='preflight' && in_array($type,['finish','resume'],true)){$this->trackingFailure($type,$e);return;}
+            if(QuizService::trackingStrengthened($session['tracking_mode']) && in_array($type,['finish','resume'],true)){$this->trackingFailure($type,$e);return;}
             $bindingError = in_array($e->getMessage(), ['attempt_mismatch', 'stale_generation'], true);
             $this->json(['error' => 'access_unavailable'], $bindingError ? 409 : 400);
             return;
         }
 
-        if($session['tracking_mode']==='preflight' && !in_array($type,['finish','resume'],true)){
+        if(QuizService::trackingStrengthened($session['tracking_mode']) && !in_array($type,['finish','resume'],true)){
             $result=array_intersect_key($result,array_fill_keys(['event_uid','attempt_id','incident_count','status','is_incident','settings_revision'],true));
         }
         $this->json($result);
     }
 
-    private function apiTracking(bool $submit): void
+    private function apiTracking(bool $submit, bool $pulse = false): void
     {
-        $operation=$submit?'preflight':'challenge';
+        $operation=$pulse?($submit?'pulse':'pulse_challenge'):($submit?'preflight':'challenge');
         $context=$this->requireApiContext();[$session,$attempt]=$context;
         $raw=file_get_contents('php://input',false,null,0,4097)?:'';
         $data=$raw!==''?json_decode($raw,true):$_POST;
@@ -228,8 +230,8 @@ class QuizController
         if(array_diff(array_keys($data),$allowed)!==[] || ($data['attempt_id']??null)!==(int)$attempt['id'] || !is_string($data['tracking_generation']??null) || !is_string($data['room_epoch']??null)){$this->trackingFailure($operation,new RuntimeException('schema_invalid'));return;}
         try{
             if($submit){if(($data['schema_version']??null)!==1 || !is_string($data['challenge']??null)||!is_array($data['checks']??null)){throw new RuntimeException('schema_invalid');}
-                $result=$this->quiz->submitTrackingPreflight((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$data['challenge'],$data['checks']);
-            }else{$result=$this->quiz->createTrackingChallenge((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch']);}
+                $result=$pulse?$this->quiz->submitTrackingPulse((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$data['challenge'],$data['checks']):$this->quiz->submitTrackingPreflight((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch'],$data['challenge'],$data['checks']);
+            }else{$result=$pulse?$this->quiz->createTrackingPulseChallenge((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch']):$this->quiz->createTrackingChallenge((int)$session['id'],(int)$attempt['id'],$data['tracking_generation'],$data['room_epoch']);}
             $this->json($result);
         }catch(Throwable $e){$this->trackingFailure($operation,$e);}
     }

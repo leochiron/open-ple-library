@@ -156,7 +156,9 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
             heartbeat: '/quiz/api/heartbeat',
             event: '/quiz/api/event',
             challenge: '/quiz/api/tracking/challenge',
-            preflight: '/quiz/api/tracking/preflight'
+            preflight: '/quiz/api/tracking/preflight',
+            pulseChallenge: '/quiz/api/tracking/pulse/challenge',
+            pulse: '/quiz/api/tracking/pulse'
         },
         minAwaySeconds: <?php echo (int)$session['min_away_seconds']; ?>,
         requireFullscreen: <?php echo !empty($session['require_fullscreen']) ? 'true' : 'false'; ?>,
