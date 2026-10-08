@@ -6,6 +6,7 @@ namespace App\Services;
 
 use PDO;
 use RuntimeException;
+use Throwable;
 
 /**
  * Business logic for monitored quiz sessions.
@@ -139,30 +140,52 @@ class QuizService
             throw new RuntimeException('invalid_form_url');
         }
 
-        $stmt = $this->db->prepare(
-            'UPDATE quiz_sessions SET title = :title, google_form_url = :url, google_form_edit_url = :edit_url, attempt_entry_id = :entry,
-                    duration_minutes = :duration, max_incidents = :max_incidents, min_away_seconds = :min_away,
-                    require_fullscreen = :fullscreen, reload_is_incident = :reload
-             WHERE id = :id'
-        );
-        $stmt->execute([
-            'title' => $title,
-            'url' => $formUrl,
-            'edit_url' => $editUrl,
-            'entry' => $entryId,
-            'duration' => max(1, (int)($data['duration_minutes'] ?? 30)),
-            'max_incidents' => max(1, (int)($data['max_incidents'] ?? 2)),
-            'min_away' => max(1, (int)($data['min_away_seconds'] ?? 10)),
-            'fullscreen' => isset($data['require_fullscreen']) ? 1 : 0,
-            'reload' => isset($data['reload_is_incident']) ? 1 : 0,
-            'id' => $sessionId,
-        ]);
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare(
+                'UPDATE quiz_sessions SET title = :title, google_form_url = :url, google_form_edit_url = :edit_url, attempt_entry_id = :entry,
+                        duration_minutes = :duration, max_incidents = :max_incidents, min_away_seconds = :min_away,
+                        require_fullscreen = :fullscreen, reload_is_incident = :reload
+                 WHERE id = :id'
+            );
+            $stmt->execute([
+                'title' => $title,
+                'url' => $formUrl,
+                'edit_url' => $editUrl,
+                'entry' => $entryId,
+                'duration' => max(1, (int)($data['duration_minutes'] ?? 30)),
+                'max_incidents' => max(1, (int)($data['max_incidents'] ?? 2)),
+                'min_away' => max(1, (int)($data['min_away_seconds'] ?? 10)),
+                'fullscreen' => isset($data['require_fullscreen']) ? 1 : 0,
+                'reload' => isset($data['reload_is_incident']) ? 1 : 0,
+                'id' => $sessionId,
+            ]);
 
-        // Thresholds may have changed: re-derive every attempt status
-        $stmt = $this->db->prepare('SELECT id FROM quiz_attempts WHERE session_id = :sid');
-        $stmt->execute(['sid' => $sessionId]);
-        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $attemptId) {
-            $this->recomputeAttemptStatus((int)$attemptId, $sessionId);
+            $session = $this->requireSession($sessionId);
+            $events = $this->db->prepare(
+                "SELECT e.id, e.event_type, e.away_seconds FROM quiz_events e
+                 JOIN quiz_attempts a ON a.id = e.attempt_id
+                 WHERE a.session_id = :sid AND e.event_type IN ('hidden', 'blur', 'fullscreen_exit', 'reload')"
+            );
+            $events->execute(['sid' => $sessionId]);
+            $qualify = $this->db->prepare('UPDATE quiz_events SET is_incident = :incident WHERE id = :id');
+            foreach ($events->fetchAll() as $event) {
+                $qualify->execute([
+                    'incident' => $this->eventIsIncident($session, (string)$event['event_type'], (int)$event['away_seconds']) ? 1 : 0,
+                    'id' => (int)$event['id'],
+                ]);
+            }
+
+            // Reclassification and every attempt count commit with the rules.
+            $stmt = $this->db->prepare('SELECT id FROM quiz_attempts WHERE session_id = :sid');
+            $stmt->execute(['sid' => $sessionId]);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $attemptId) {
+                $this->recomputeAttemptStatus((int)$attemptId, $sessionId);
+            }
+            $this->db->commit();
+        } catch (Throwable $exception) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $exception;
         }
     }
 
@@ -590,6 +613,21 @@ class QuizService
         return $stmt->fetchAll();
     }
 
+    /** Latest bounded feed snapshot, oldest first for the same client renderer. */
+    public function listRecentEvents(int $sessionId, int $limit = 100): array
+    {
+        $this->requireSession($sessionId);
+        $stmt = $this->db->prepare(
+            'SELECT e.*, a.student_id, st.first_name, st.last_name
+             FROM quiz_events e
+             JOIN quiz_attempts a ON a.id = e.attempt_id
+             JOIN quiz_students st ON st.id = a.student_id
+             WHERE a.session_id = :sid ORDER BY e.id DESC LIMIT ' . max(1, min($limit, 100))
+        );
+        $stmt->execute(['sid' => $sessionId]);
+        return array_reverse($stmt->fetchAll());
+    }
+
     /**
      * Teacher arbitration: excuse (or reinstate) an incident, then recompute
      * the attempt's incident count and status. Returns the attempt id, or
@@ -636,7 +674,7 @@ class QuizService
     }
 
     /** Recounts non-excused incidents and re-derives the attempt status. */
-    private function recomputeAttemptStatus(int $attemptId, int $sessionId): void
+    private function recomputeAttemptStatus(int $attemptId, int $sessionId): array
     {
         $session = $this->requireSession($sessionId);
         $stmt = $this->db->prepare(
@@ -648,6 +686,7 @@ class QuizService
         $status = $count >= (int)$session['max_incidents'] ? 'invalid' : ($count > 0 ? 'suspect' : 'started');
         $upd = $this->db->prepare('UPDATE quiz_attempts SET incident_count = :count, status = :status WHERE id = :id');
         $upd->execute(['count' => $count, 'status' => $status, 'id' => $attemptId]);
+        return ['incident_count' => $count, 'status' => $status];
     }
 
     // ------------------------------------------------------------------
@@ -748,44 +787,66 @@ class QuizService
         }
 
         $awaySeconds = max(0, min($awaySeconds, 3600));
-        $awayTypes = ['hidden', 'blur'];
-        if (!empty($session['require_fullscreen'])) {
-            $awayTypes[] = 'fullscreen_exit';
-        }
-        $isIncident = in_array($type, $awayTypes, true) && $awaySeconds >= (int)$session['min_away_seconds'];
-        if ($type === 'reload' && !empty($session['reload_is_incident'])) {
-            $isIncident = true;
-        }
+        $this->db->beginTransaction();
+        try {
+            // The first write takes the SQLite lock before reading current rules.
+            // A stale API context cannot restore an old qualification or count.
+            $this->insertEvent((int)$attempt['id'], $type, $awaySeconds, false);
+            $eventId = (int)$this->db->lastInsertId();
+            $session = $this->requireSession((int)$session['id']);
+            $currentAttempt = $this->getAttempt((int)$attempt['id']);
+            if ($currentAttempt === null || (int)$currentAttempt['session_id'] !== (int)$session['id']) {
+                throw new RuntimeException('resource_not_found');
+            }
+            if (in_array($type, ['finish', 'resume'], true) && $session['state'] !== 'running') {
+                throw new RuntimeException('session_not_running');
+            }
+            $isIncident = $this->eventIsIncident($session, $type, $awaySeconds);
+            if ($isIncident) {
+                $stmt = $this->db->prepare('UPDATE quiz_events SET is_incident = 1 WHERE id = :id');
+                $stmt->execute(['id' => $eventId]);
+            }
 
-        if (in_array($type, ['finish', 'resume'], true) && $session['state'] !== 'running') {
-            throw new RuntimeException('session_not_running');
-        }
-        $this->insertEvent((int)$attempt['id'], $type, $awaySeconds, $isIncident);
+            if ($type === 'finish') {
+                $stmt = $this->db->prepare('UPDATE quiz_attempts SET finished_at = :now WHERE id = :id AND finished_at IS NULL');
+                $stmt->execute(['now' => $this->now(), 'id' => (int)$attempt['id']]);
+            }
 
-        if ($type === 'finish') {
-            $stmt = $this->db->prepare('UPDATE quiz_attempts SET finished_at = :now WHERE id = :id AND finished_at IS NULL');
-            $stmt->execute(['now' => $this->now(), 'id' => (int)$attempt['id']]);
-        }
+            if ($type === 'resume') {
+                $stmt = $this->db->prepare('UPDATE quiz_attempts SET finished_at = NULL WHERE id = :id');
+                $stmt->execute(['id' => (int)$attempt['id']]);
+            }
 
-        if ($type === 'resume') {
-            $stmt = $this->db->prepare('UPDATE quiz_attempts SET finished_at = NULL WHERE id = :id');
-            $stmt->execute(['id' => (int)$attempt['id']]);
+            $result = $this->recomputeAttemptStatus((int)$attempt['id'], (int)$session['id']);
+            $currentAttempt = $this->getAttempt((int)$attempt['id']);
+            $this->db->commit();
+            return array_merge($result, ['is_incident' => $isIncident, 'finished' => !empty($currentAttempt['finished_at'])]);
+        } catch (Throwable $exception) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $exception;
         }
+    }
 
-        if ($isIncident) {
-            $newCount = (int)$attempt['incident_count'] + 1;
-            $status = $newCount >= (int)$session['max_incidents'] ? 'invalid' : 'suspect';
-            $stmt = $this->db->prepare('UPDATE quiz_attempts SET incident_count = :count, status = :status WHERE id = :id');
-            $stmt->execute(['count' => $newCount, 'status' => $status, 'id' => (int)$attempt['id']]);
-            return ['incident_count' => $newCount, 'status' => $status, 'is_incident' => true];
+    /** Shared qualification for new records and reclassification of history. */
+    private function eventIsIncident(array $session, string $type, int $awaySeconds): bool
+    {
+        if ($type === 'reload') {
+            return !empty($session['reload_is_incident']);
         }
+        if ($type === 'fullscreen_exit' && empty($session['require_fullscreen'])) {
+            return false;
+        }
+        return in_array($type, ['hidden', 'blur', 'fullscreen_exit'], true)
+            && $awaySeconds >= (int)$session['min_away_seconds'];
+    }
 
-        return [
-            'incident_count' => (int)$attempt['incident_count'],
-            'status' => (string)$attempt['status'],
-            'is_incident' => false,
-            'finished' => $type === 'finish' || ($type !== 'resume' && !empty($attempt['finished_at'])),
-        ];
+    /** No schema change: this version follows only incident rules and quota. */
+    public function rulesVersion(array $session): string
+    {
+        return hash('sha256', json_encode([
+            (int)$session['max_incidents'], (int)$session['min_away_seconds'],
+            !empty($session['require_fullscreen']), !empty($session['reload_is_incident']),
+        ]));
     }
 
     // ------------------------------------------------------------------
@@ -804,6 +865,7 @@ class QuizService
             'min_away_seconds' => (int)$session['min_away_seconds'],
             'require_fullscreen' => !empty($session['require_fullscreen']),
             'reload_is_incident' => !empty($session['reload_is_incident']),
+            'rules_version' => $this->rulesVersion($session),
             'server_now' => $now,
             'remaining_seconds' => null,
         ];

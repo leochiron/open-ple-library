@@ -479,6 +479,8 @@ $sid = (int)$session['id'];
     if (!tbody) { return; }
     var sessionId = <?php echo $sid; ?>;
     var lastId = <?php echo (int)($recentEvents[0]['id'] ?? 0); ?>;
+    var rulesVersion = <?php echo json_encode($rulesVersion ?? ''); ?>;
+    var feedPending = false;
 
     function esc(s) {
         var d = document.createElement('div');
@@ -487,10 +489,23 @@ $sid = (int)$session['id'];
     }
 
     function pollFeed() {
-        fetch('/quiz-admin/api/events?id=' + sessionId + '&after=' + lastId, { credentials: 'same-origin' })
+        if (feedPending) { return; }
+        feedPending = true;
+        fetch('/quiz-admin/api/events?id=' + sessionId + '&after=' + lastId + '&rules_version=' + encodeURIComponent(rulesVersion), { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                if (!data || !Array.isArray(data.events) || data.events.length === 0) { return; }
+                if (!data || !Array.isArray(data.events)) { return; }
+                if (data.reset) {
+                    tbody.innerHTML = '';
+                    lastId = 0;
+                }
+                if (typeof data.rules_version === 'string') { rulesVersion = data.rules_version; }
+                if (data.events.length === 0) {
+                    if (data.reset) {
+                        tbody.innerHTML = '<tr id="qa-feed-empty"><td colspan="4"><?php echo htmlspecialchars($i18n->t('quiz.admin.no_events'), ENT_QUOTES, 'UTF-8'); ?></td></tr>';
+                    }
+                    return;
+                }
                 var empty = document.getElementById('qa-feed-empty');
                 if (empty) { empty.remove(); }
                 // Events arrive oldest first: prepending each one keeps newest on top
@@ -508,7 +523,8 @@ $sid = (int)$session['id'];
                     tbody.removeChild(tbody.lastChild);
                 }
             })
-            .catch(function () {});
+            .catch(function () {})
+            .finally(function () { feedPending = false; });
     }
 
     setInterval(pollFeed, 5000);

@@ -469,6 +469,7 @@ php tests/PublicUrlResolverTest.php
 php tests/QuizAdminAuthServiceTest.php
 php tests/QuizOwnershipIsolationTest.php
 php tests/QuizLiveSettingsTest.php
+php tests/QuizIncidentReclassificationTest.php
 node tests/QuizLiveSettingsJsTest.js
 php tests/RouteIntegrationTest.php
 php tests/WebServerRulesTest.php

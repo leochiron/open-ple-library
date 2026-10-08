@@ -30,6 +30,7 @@ $state = [
     'attempt_status' => 'started', 'finished' => false, 'form_url' => $session['google_form_url'],
 ];
 $attempts = $recentEvents = $admins = [];
+$rulesVersion = 'initial-rules';
 $admin = ['id' => 1, 'role' => 'quiz_admin'];
 $flash = $csrfToken = '';
 $config = [];
