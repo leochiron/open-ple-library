@@ -471,8 +471,10 @@ php tests/QuizOwnershipIsolationTest.php
 php tests/QuizLiveSettingsTest.php
 php tests/QuizIncidentReclassificationTest.php
 php tests/QuizEventJournalTest.php
+php tests/QuizHistoryAuditTest.php
 node tests/QuizLiveSettingsJsTest.js
 node tests/QuizEventJournalJsTest.js
+node tests/QuizHistoryJsTest.js
 php tests/RouteIntegrationTest.php
 php tests/WebServerRulesTest.php
 ```
@@ -486,6 +488,16 @@ The observation journal also covers subsecond exits, overlapping sources,
 bounded persistent retries, idempotent receipt and attempt/launch binding.
 See `SPEC_EXECUTION_QUIZ_JOURNAL.md` for migration, timestamp interpretation,
 publication manifest and the limits of reverting to pre-journal code.
+
+Reset now archives every existing attempt, including finished attempts and those
+without incidents, before clearing the current history. Ordinary launch retains
+the current observations and counts. Private history/report/CSV routes preserve
+frozen identities and observations, while an independent atomic audit records
+teacher actions. `QuizHistoryAuditTest.php` covers same-second resets, complete
+snapshots, ownership transfer, deletion, SQL rollback, volume limits and streamed
+exports; `QuizHistoryJsTest.js` covers reset reconciliation and delayed responses
+without replaying projected alerts. See `SPEC_EXECUTION_QUIZ_HISTORY_AUDIT.md`
+for the additive schema, volume bounds and publication manifest.
 
 PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
 therefore verifies the presence and ordering of every sensitive Apache rule when

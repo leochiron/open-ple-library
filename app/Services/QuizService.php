@@ -21,6 +21,11 @@ class QuizService
     // Unambiguous alphabet for student codes (no 0/O, 1/I/L)
     private const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
     private const CODE_LENGTH = 5;
+    private const ARCHIVE_VERSION = 1;
+    private const MAX_ARCHIVE_ATTEMPTS = 1000;
+    private const MAX_ARCHIVE_EVENTS = 20000;
+    private const MAX_ARCHIVE_BYTES = 8388608;
+    private const MAX_RESET_ARCHIVE_BYTES = 67108864;
 
     private PDO $db;
     private string $storagePath;
@@ -125,6 +130,7 @@ class QuizService
      */
     public function updateSession(int $sessionId, array $data): void
     {
+        $this->currentAdminId();
         $session = $this->requireSession($sessionId);
         $data['google_form_edit_url'] = $data['google_form_edit_url'] ?? $session['google_form_edit_url'] ?? '';
 
@@ -142,6 +148,8 @@ class QuizService
 
         $this->db->beginTransaction();
         try {
+            $this->lockTeacherSession($sessionId);
+            $before = $this->sessionAuditFields($this->requireSession($sessionId));
             $stmt = $this->db->prepare(
                 'UPDATE quiz_sessions SET title = :title, google_form_url = :url, google_form_edit_url = :edit_url, attempt_entry_id = :entry,
                         duration_minutes = :duration, max_incidents = :max_incidents, min_away_seconds = :min_away,
@@ -170,6 +178,7 @@ class QuizService
             foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $attemptId) {
                 $this->recomputeAttemptStatus((int)$attemptId, $sessionId);
             }
+            $this->appendAudit($sessionId, 'settings_updated', $before, $this->sessionAuditFields($session));
             $this->db->commit();
         } catch (Throwable $exception) {
             if ($this->db->inTransaction()) { $this->db->rollBack(); }
@@ -318,88 +327,56 @@ class QuizService
     /** Opens the virtual room: generates the PIN displayed in class. */
     public function openLobby(int $sessionId): string
     {
-        $session = $this->requireSession($sessionId);
-        if (!in_array($session['state'], ['armed', 'closed'], true)) {
-            throw new RuntimeException('invalid_state');
-        }
-
-        do {
-            $pin = (string)random_int(100000, 999999);
-        } while ($this->findSessionByPin($pin) !== null);
-
-        $stmt = $this->db->prepare(
-            "UPDATE quiz_sessions SET state = 'lobby', access_pin = :pin, pin_generated_at = :now, started_at = NULL, closed_at = NULL WHERE id = :id"
-        );
-        $stmt->execute(['pin' => $pin, 'now' => $this->now(), 'id' => $sessionId]);
-
-        return $pin;
+        return $this->sessionMutation($sessionId, 'lobby_opened', function (array $session) use ($sessionId): string {
+            if (!in_array($session['state'], ['armed', 'closed'], true)) { throw new RuntimeException('invalid_state'); }
+            do { $pin = (string)random_int(100000, 999999); } while ($this->findSessionByPin($pin) !== null);
+            $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'lobby', access_pin = :pin, pin_generated_at = :now, started_at = NULL, closed_at = NULL WHERE id = :id");
+            $stmt->execute(['pin' => $pin, 'now' => $this->now(), 'id' => $sessionId]);
+            return $pin;
+        });
     }
 
-    /**
-     * Starts the quiz: the timer starts now, synchronized for everyone.
-     * Also allowed while running: relaunches with a fresh timer (debug / false start).
-     */
+    /** Ordinary launch changes the timer/nonce; current observations and counts stay. */
     public function launch(int $sessionId): void
     {
-        $session = $this->requireSession($sessionId);
-        if (!in_array($session['state'], ['lobby', 'running'], true)) {
-            throw new RuntimeException('invalid_state');
-        }
-        $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now, tracking_generation = :generation WHERE id = :id");
-        $stmt->execute(['now' => $this->now(), 'generation' => bin2hex(random_bytes(16)), 'id' => $sessionId]);
-    }
-
-    /** Pauses a running quiz back to the lobby (PIN kept, students see the waiting screen). */
-    public function stop(int $sessionId): void
-    {
-        $session = $this->requireSession($sessionId);
-        if ($session['state'] !== 'running') {
-            throw new RuntimeException('invalid_state');
-        }
-        $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'lobby', started_at = NULL WHERE id = :id");
-        $stmt->execute(['id' => $sessionId]);
-    }
-
-    /**
-     * Full restart: wipes every monitoring event of the session, resets every
-     * attempt (status, incidents, finished flag) and relaunches with a fresh
-     * timer. Attempts and tokens are kept so connected students stay in the room.
-     */
-    public function resetAndRelaunch(int $sessionId): void
-    {
-        $this->db->beginTransaction();
-        try {
-            $lock = $this->db->prepare('UPDATE quiz_sessions SET tracking_generation = tracking_generation WHERE id = :id');
-            $lock->execute(['id' => $sessionId]);
-            $session = $this->requireSession($sessionId);
-            if (!in_array($session['state'], ['lobby', 'running'], true)) {
-                throw new RuntimeException('invalid_state');
-            }
-
-            $stmt = $this->db->prepare(
-                'DELETE FROM quiz_events WHERE attempt_id IN (SELECT id FROM quiz_attempts WHERE session_id = :sid)'
-            );
-            $stmt->execute(['sid' => $sessionId]);
-
-            $stmt = $this->db->prepare(
-                "UPDATE quiz_attempts SET incident_count = 0, status = 'started', finished_at = NULL WHERE session_id = :sid"
-            );
-            $stmt->execute(['sid' => $sessionId]);
-
+        $this->sessionMutation($sessionId, 'launched', function (array $session) use ($sessionId): void {
+            if (!in_array($session['state'], ['lobby', 'running'], true)) { throw new RuntimeException('invalid_state'); }
             $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now, tracking_generation = :generation WHERE id = :id");
             $stmt->execute(['now' => $this->now(), 'generation' => bin2hex(random_bytes(16)), 'id' => $sessionId]);
-            $this->db->commit();
-        } catch (\Throwable $e) {
-            if ($this->db->inTransaction()) { $this->db->rollBack(); }
-            throw $e;
-        }
+        });
+    }
+
+    public function stop(int $sessionId): void
+    {
+        $this->sessionMutation($sessionId, 'stopped', function (array $session) use ($sessionId): void {
+            if ($session['state'] !== 'running') { throw new RuntimeException('invalid_state'); }
+            $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'lobby', started_at = NULL WHERE id = :id");
+            $stmt->execute(['id' => $sessionId]);
+        });
+    }
+
+    /** Immutable snapshots precede the current-history reset in the same transaction. */
+    public function resetAndRelaunch(int $sessionId): void
+    {
+        $this->sessionMutation($sessionId, 'reset', function (array $session) use ($sessionId): int {
+            if (!in_array($session['state'], ['lobby', 'running'], true)) { throw new RuntimeException('invalid_state'); }
+            $archived = $this->archiveAttempts($session);
+            $stmt = $this->db->prepare('DELETE FROM quiz_events WHERE attempt_id IN (SELECT id FROM quiz_attempts WHERE session_id = :sid)');
+            $stmt->execute(['sid' => $sessionId]);
+            $stmt = $this->db->prepare("UPDATE quiz_attempts SET incident_count = 0, status = 'started', finished_at = NULL WHERE session_id = :sid");
+            $stmt->execute(['sid' => $sessionId]);
+            $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now, tracking_generation = :generation, history_revision = history_revision + 1 WHERE id = :id");
+            $stmt->execute(['now' => $this->now(), 'generation' => bin2hex(random_bytes(16)), 'id' => $sessionId]);
+            return $archived;
+        });
     }
 
     public function close(int $sessionId): void
     {
-        $this->requireSession($sessionId);
-        $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'closed', closed_at = :now, access_pin = NULL WHERE id = :id");
-        $stmt->execute(['now' => $this->now(), 'id' => $sessionId]);
+        $this->sessionMutation($sessionId, 'closed', function (array $session) use ($sessionId): void {
+            $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'closed', closed_at = :now, access_pin = NULL WHERE id = :id");
+            $stmt->execute(['now' => $this->now(), 'id' => $sessionId]);
+        });
     }
 
     /**
@@ -632,6 +609,7 @@ class QuizService
      */
     public function setEventExcused(int $eventId, bool $excused): ?int
     {
+        $this->currentAdminId();
         $this->db->beginTransaction();
         try {
             $lock = $this->db->prepare('UPDATE quiz_events SET excused = excused WHERE id = :id');
@@ -648,6 +626,9 @@ class QuizService
                 return null;
             }
             $this->requireSession((int)$event['session_id']);
+            $before = $this->attemptAuditFields((int)$event['attempt_id']);
+            $before['event_id'] = $eventId;
+            $before['absence_uid'] = $event['absence_uid'];
 
             $upd = $this->db->prepare(empty($event['absence_uid'])
                 ? 'UPDATE quiz_events SET excused = :ex WHERE id = :id'
@@ -657,6 +638,10 @@ class QuizService
                 : ['ex' => $excused ? 1 : 0, 'aid' => (int)$event['attempt_id'], 'absence' => $event['absence_uid']]);
 
             $this->recomputeAttemptStatus((int)$event['attempt_id'], (int)$event['session_id']);
+            $after = $this->attemptAuditFields((int)$event['attempt_id']);
+            $after['event_id'] = $eventId;
+            $after['absence_uid'] = $event['absence_uid'];
+            $this->appendAudit((int)$event['session_id'], $excused ? 'episode_excused' : 'episode_reinstated', $before, $after);
             $this->db->commit();
             return (int)$event['attempt_id'];
         } catch (\Throwable $e) {
@@ -672,6 +657,7 @@ class QuizService
      */
     public function excuseAttempt(int $attemptId): ?int
     {
+        $this->currentAdminId();
         $this->db->beginTransaction();
         try {
             $lock = $this->db->prepare('UPDATE quiz_attempts SET incident_count = incident_count WHERE id = :id');
@@ -682,10 +668,12 @@ class QuizService
                 return null;
             }
 
+            $before = $this->attemptAuditFields($attemptId);
             $stmt = $this->db->prepare('UPDATE quiz_events SET excused = 1 WHERE attempt_id = :aid AND (is_incident = 1 OR absence_uid IN (SELECT absence_uid FROM quiz_events WHERE attempt_id = :aid AND is_incident = 1 AND absence_uid IS NOT NULL))');
             $stmt->execute(['aid' => $attemptId]);
 
             $this->recomputeAttemptStatus($attemptId, (int)$attempt['session_id']);
+            $this->appendAudit((int)$attempt['session_id'], 'attempt_excused', $before, $this->attemptAuditFields($attemptId));
             $this->db->commit();
             return (int)$attempt['session_id'];
         } catch (\Throwable $e) {
@@ -1000,6 +988,7 @@ class QuizService
             $payload['remaining_seconds'] = max(0, $endsAt - $now);
         }
 
+        if ($attempt === null) { $payload['history_revision'] = (int)$session['history_revision']; }
         if ($attempt !== null) {
             $payload['attempt_id'] = (int)$attempt['id'];
             $payload['tracking_generation'] = (string)($session['tracking_generation'] ?? '');
@@ -1040,28 +1029,281 @@ class QuizService
         return hash_equals($expected, $sig);
     }
 
+    /** Compatibility wrapper; HTTP exports spool and stream without one giant string. */
     public function exportCsv(int $sessionId): string
     {
-        $attempts = $this->listAttempts($sessionId);
-        $events = $this->listEvents($sessionId);
+        $out = fopen('php://temp', 'w+');
+        try { $this->writeExportCsv($sessionId, $out); rewind($out); return stream_get_contents($out) ?: ''; }
+        finally { fclose($out); }
+    }
 
-        $out = fopen('php://temp', 'r+');
-        fputcsv($out, ['type', 'nom', 'prenom', 'code', 'token', 'email', 'fin_declaree_a', 'reponses_google_forms', 'statut', 'incidents', 'rejoint_a', 'dernier_heartbeat', 'evenement', 'duree_absence_s', 'reception_serveur', 'source', 'duree_absence_ms', 'precision', 'episode', 'event_uid', 'depart_uid', 'traces_perdues', 'generation'], ';', '"', '');
-        foreach ($attempts as $a) {
-            fputcsv($out, ['tentative', $a['last_name'], $a['first_name'], $a['code'], $a['public_token'], $a['email'], $this->toParisTime($a['finished_at']), 'non vérifiées dans Quiz', $a['status'], $a['incident_count'], $this->toParisTime($a['started_at']), $this->toParisTime($a['last_heartbeat_at']), '', '', '', '', '', '', '', '', '', '', ''], ';', '"', '');
+    public function writeExportCsv(int $sessionId, $out): void
+    {
+        $this->currentAdminId();
+        $this->db->beginTransaction();
+        try {
+            $this->requireSession($sessionId);
+            $this->csvHeader($out);
+            $stmt = $this->db->prepare('SELECT a.*, st.first_name, st.last_name, st.code, st.email FROM quiz_attempts a JOIN quiz_students st ON st.id = a.student_id WHERE a.session_id = :sid ORDER BY a.id');
+            $stmt->execute(['sid' => $sessionId]);
+            while ($attempt = $stmt->fetch()) { $this->csvRow($out, $this->csvAttemptRow($attempt), ['courant']); }
+            $stmt->closeCursor();
+            $stmt = $this->db->prepare('SELECT e.*, st.first_name, st.last_name FROM quiz_events e JOIN quiz_attempts a ON a.id = e.attempt_id JOIN quiz_students st ON st.id = a.student_id WHERE a.session_id = :sid ORDER BY e.id');
+            $stmt->execute(['sid' => $sessionId]);
+            while ($event = $stmt->fetch()) { $this->csvRow($out, $this->csvEventRow($event), ['courant']); }
+            $stmt->closeCursor();
+            $before = 0;
+            do {
+                $page = $this->listArchives($sessionId, $before, 25);
+                foreach ($page['rows'] as $row) {
+                    $archive = $this->getArchive((int)$row['id']);
+                    $this->csvArchive($out, $archive);
+                    unset($archive);
+                }
+                $before = $page['next_before'];
+            } while ($before !== null);
+            $before = 0;
+            do {
+                $page = $this->listAudit($sessionId, $before, 25);
+                foreach ($page['rows'] as $entry) {
+                    $row = array_fill(0, 23, ''); $row[0] = 'audit'; $row[12] = $entry['action']; $row[14] = $this->toParisTime($entry['created_at']);
+                    $this->csvRow($out, $row, ['audit', '', '', $this->toParisTime($entry['created_at']), $entry['actor_admin_id'], $entry['actor_name'], $entry['format_version'], json_encode($entry['before'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), json_encode($entry['after'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+                }
+                $before = $page['next_before'];
+            } while ($before !== null);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
         }
-        foreach ($events as $e) {
-            fputcsv($out, ['evenement', $e['last_name'], $e['first_name'], '', '', '', '', '', '', '', '', '', $e['event_type'] . ($e['is_incident'] ? (!empty($e['excused']) ? ' (incident excusé)' : ' (incident)') : ''), $e['event_type'] === 'away_start' ? '' : $e['away_seconds'], $this->toParisTime($e['created_at']), $e['source'], $e['duration_ms'], $e['event_type'] === 'away_start' ? 'inconnue' : ($e['duration_ms'] !== null ? ((int)$e['duration_ms'] >= 3600000 ? 'ms_minimum' : 'ms') : 's'), $e['absence_uid'], $e['event_uid'], $e['related_event_uid'], $e['dropped_events'], $e['tracking_generation']], ';', '"', '');
+    }
+
+    public function exportArchiveCsv(int $archiveId): string
+    {
+        $out = fopen('php://temp', 'w+');
+        try { $this->writeArchiveCsv($archiveId, $out); rewind($out); return stream_get_contents($out) ?: ''; }
+        finally { fclose($out); }
+    }
+
+    public function writeArchiveCsv(int $archiveId, $out): void
+    {
+        $archive = $this->getArchive($archiveId);
+        if ($archive === null) { throw new RuntimeException('resource_not_found'); }
+        $this->csvHeader($out); $this->csvArchive($out, $archive);
+    }
+
+    private function csvHeader($out): void
+    {
+        fputcsv($out, ['type', 'nom', 'prenom', 'code', 'token', 'email', 'fin_declaree_a', 'reponses_google_forms', 'statut', 'incidents', 'rejoint_a', 'dernier_heartbeat', 'evenement', 'duree_absence_s', 'reception_serveur', 'source', 'duree_absence_ms', 'precision', 'episode', 'event_uid', 'depart_uid', 'traces_perdues', 'generation', 'section', 'archive_id', 'nonce_au_reset', 'copie_avant_reset_a', 'acteur_id', 'acteur', 'format_version', 'audit_avant', 'audit_apres'], ';', '"', '');
+    }
+
+    private function csvRow($out, array $row, array $metadata): void
+    {
+        if (fputcsv($out, array_merge($row, array_pad($metadata, 9, '')), ';', '"', '') === false) { throw new RuntimeException('export_write_failed'); }
+    }
+
+    private function csvAttemptRow(array $a): array
+    {
+        return ['tentative', $a['last_name'], $a['first_name'], $a['code'] ?? '', $a['public_token'] ?? '', $a['email'], $this->toParisTime($a['finished_at']), 'non vérifiées dans Quiz', $a['status'], $a['incident_count'], $this->toParisTime($a['started_at']), $this->toParisTime($a['last_heartbeat_at']), '', '', '', '', '', '', '', '', '', '', ''];
+    }
+
+    private function csvEventRow(array $e): array
+    {
+        return ['evenement', $e['last_name'], $e['first_name'], '', '', '', '', '', '', '', '', '', $e['event_type'] . ($e['is_incident'] ? (!empty($e['excused']) ? ' (incident excusé)' : ' (incident)') : ''), $e['event_type'] === 'away_start' ? '' : $e['away_seconds'], $this->toParisTime($e['created_at']), $e['source'], $e['duration_ms'], $e['event_type'] === 'away_start' ? 'inconnue' : ($e['duration_ms'] !== null ? ((int)$e['duration_ms'] >= 3600000 ? 'ms_minimum' : 'ms') : 's'), $e['absence_uid'], $e['event_uid'], $e['related_event_uid'], $e['dropped_events'], $e['tracking_generation']];
+    }
+
+    private function csvArchive($out, array $archive): void
+    {
+        $snapshot = $archive['snapshot']; $attempt = $snapshot['attempt'];
+        $metadata = ['archive', $archive['id'], $archive['generation'], $this->toParisTime($archive['archived_at']), $archive['actor_admin_id'], $archive['actor_name'], $archive['format_version']];
+        $row = $this->csvAttemptRow($attempt); $row[0] = 'archive_tentative'; $this->csvRow($out, $row, $metadata);
+        foreach ($snapshot['events'] as $event) {
+            $row = $this->csvEventRow($event + ['first_name' => $attempt['first_name'], 'last_name' => $attempt['last_name']]);
+            $row[0] = 'archive_evenement'; $this->csvRow($out, $row, $metadata);
         }
-        rewind($out);
-        $csv = stream_get_contents($out) ?: '';
-        fclose($out);
-        return $csv;
     }
 
     // ------------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------------
+
+    /** All teacher mutations acquire their write lock before fresh ownership/state reads. */
+    private function lockTeacherSession(int $sessionId): void
+    {
+        $this->currentAdminId();
+        $lock = $this->db->prepare('UPDATE quiz_sessions SET tracking_generation = tracking_generation WHERE id = :id');
+        $lock->execute(['id' => $sessionId]);
+        $this->requireSession($sessionId);
+    }
+
+    private function sessionMutation(int $sessionId, string $action, callable $mutation): mixed
+    {
+        $this->currentAdminId();
+        $this->db->beginTransaction();
+        try {
+            $this->lockTeacherSession($sessionId);
+            $session = $this->requireSession($sessionId);
+            $before = $this->sessionAuditFields($session);
+            if ($action === 'reset') { $before += $this->sessionCounts($sessionId); }
+            $result = $mutation($session);
+            $after = $this->sessionAuditFields($this->requireSession($sessionId));
+            if ($action === 'reset') { $after += $this->sessionCounts($sessionId); $after['archived_attempt_count'] = $result; }
+            $this->appendAudit($sessionId, $action, $before, $after);
+            $this->db->commit();
+            return $result;
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
+        }
+    }
+
+    private function ruleFields(array $session): array
+    {
+        return [
+            'title' => (string)$session['title'], 'duration_minutes' => (int)$session['duration_minutes'],
+            'max_incidents' => (int)$session['max_incidents'], 'min_away_seconds' => (int)$session['min_away_seconds'],
+            'require_fullscreen' => !empty($session['require_fullscreen']), 'reload_is_incident' => !empty($session['reload_is_incident']),
+        ];
+    }
+
+    private function sessionAuditFields(array $session): array
+    {
+        // Strip any prefilled query values from the public URL; a digest still
+        // distinguishes a query-only edit without collecting Forms responses.
+        return $this->ruleFields($session) + [
+            'google_form_url' => strtok((string)$session['google_form_url'], '?') ?: '',
+            'google_form_url_hash' => hash('sha256', (string)$session['google_form_url']),
+            'google_form_edit_url' => (string)$session['google_form_edit_url'],
+            'attempt_entry_id' => (string)$session['attempt_entry_id'],
+            'state' => $session['state'], 'started_at' => $session['started_at'], 'closed_at' => $session['closed_at'],
+            'pin_active' => !empty($session['access_pin']), 'tracking_generation' => $session['tracking_generation'],
+            'history_revision' => (int)$session['history_revision'],
+        ];
+    }
+
+    private function sessionCounts(int $sessionId): array
+    {
+        $stmt = $this->db->prepare('SELECT COUNT(*) AS attempt_count, COALESCE(SUM(incident_count), 0) AS incident_count, SUM(CASE WHEN finished_at IS NOT NULL THEN 1 ELSE 0 END) AS finished_count FROM quiz_attempts WHERE session_id = :sid');
+        $stmt->execute(['sid' => $sessionId]);
+        $counts = array_map('intval', $stmt->fetch());
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM quiz_events e JOIN quiz_attempts a ON a.id = e.attempt_id WHERE a.session_id = :sid');
+        $stmt->execute(['sid' => $sessionId]);
+        $counts['event_count'] = (int)$stmt->fetchColumn();
+        return $counts;
+    }
+
+    private function attemptAuditFields(int $attemptId): array
+    {
+        $attempt = $this->getAttempt($attemptId);
+        if ($attempt === null) { throw new RuntimeException('resource_not_found'); }
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM quiz_events WHERE attempt_id = :aid AND excused = 1');
+        $stmt->execute(['aid' => $attemptId]);
+        return ['attempt_id' => $attemptId, 'first_name' => $attempt['first_name'], 'last_name' => $attempt['last_name'],
+            'incident_count' => (int)$attempt['incident_count'],
+            'status' => $attempt['status'], 'finished_at' => $attempt['finished_at'], 'excused_event_count' => (int)$stmt->fetchColumn()];
+    }
+
+    private function auditActor(): array
+    {
+        $stmt = $this->db->prepare("SELECT id, display_name FROM admin_users WHERE id = :id AND status = 'active'");
+        $stmt->execute(['id' => $this->currentAdminId()]);
+        $actor = $stmt->fetch();
+        if ($actor === false) { throw new RuntimeException('admin_auth_required'); }
+        return ['id' => (int)$actor['id'], 'name' => mb_substr((string)$actor['display_name'], 0, 256)];
+    }
+
+    /** Reusable within atomic teacher operations; callers supply targeted fields. */
+    private function appendAudit(int $sessionId, string $action, array $before, array $after): void
+    {
+        $this->currentAdminId();
+        $this->requireSession($sessionId);
+        if (!$this->db->inTransaction()) { throw new RuntimeException('audit_requires_transaction'); }
+        $actor = $this->auditActor();
+        $beforeJson = json_encode($before, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $afterJson = json_encode($after, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        if (strlen($beforeJson) > 16384 || strlen($afterJson) > 16384) { throw new RuntimeException('audit_too_large'); }
+        $stmt = $this->db->prepare('INSERT INTO quiz_session_audit(session_id, action, actor_admin_id, actor_name, created_at, before_json, after_json) VALUES(:sid, :action, :actor, :name, :now, :before, :after)');
+        $stmt->execute(['sid' => $sessionId, 'action' => $action, 'actor' => $actor['id'], 'name' => $actor['name'], 'now' => $this->now(), 'before' => $beforeJson, 'after' => $afterJson]);
+    }
+
+    private function archiveAttempts(array $session): int
+    {
+        $sid = (int)$session['id'];
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM quiz_attempts WHERE session_id = :sid');
+        $stmt->execute(['sid' => $sid]);
+        if ((int)$stmt->fetchColumn() > self::MAX_ARCHIVE_ATTEMPTS) { throw new RuntimeException('archive_attempt_limit'); }
+        $attempts = $this->listAttempts($sid);
+        $actor = $this->auditActor(); $date = $this->now(); $totalBytes = 0;
+        $insert = $this->db->prepare('INSERT INTO quiz_attempt_archives(session_id, source_attempt_id, generation, format_version, actor_admin_id, actor_name, archived_at, first_name, last_name, incident_count, status, finished_at, event_count, snapshot_json) VALUES(:sid, :aid, :generation, :version, :actor, :name, :now, :first, :last, :count, :status, :finished, :events, :json)');
+        foreach ($attempts as $attempt) {
+            if ((int)$attempt['event_count'] > self::MAX_ARCHIVE_EVENTS) { throw new RuntimeException('archive_event_limit'); }
+            $fields = ['id', 'student_id', 'first_name', 'last_name', 'email', 'incident_count', 'status', 'finished_at', 'started_at', 'last_heartbeat_at', 'created_at'];
+            $frozenAttempt = array_intersect_key($attempt, array_fill_keys($fields, true));
+            $events = array_reverse($this->listEventsForAttempt((int)$attempt['id']));
+            $snapshot = ['format_version' => self::ARCHIVE_VERSION, 'session_id' => $sid,
+                'reset_generation' => (string)($session['tracking_generation'] ?? ''), 'rules' => $this->ruleFields($session),
+                'attempt' => $frozenAttempt, 'events' => $events,
+                'event_generations' => array_values(array_unique(array_filter(array_column($events, 'tracking_generation'), static fn($value): bool => $value !== null && $value !== '')))];
+            $json = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            $bytes = strlen($json); $totalBytes += $bytes;
+            if ($bytes > self::MAX_ARCHIVE_BYTES || $totalBytes > self::MAX_RESET_ARCHIVE_BYTES) { throw new RuntimeException('archive_size_limit'); }
+            $insert->execute(['sid' => $sid, 'aid' => (int)$attempt['id'], 'generation' => $snapshot['reset_generation'],
+                'version' => self::ARCHIVE_VERSION, 'actor' => $actor['id'], 'name' => $actor['name'], 'now' => $date,
+                'first' => $attempt['first_name'], 'last' => $attempt['last_name'], 'count' => (int)$attempt['incident_count'],
+                'status' => $attempt['status'], 'finished' => $attempt['finished_at'], 'events' => count($events), 'json' => $json]);
+            unset($events, $snapshot, $json);
+        }
+        return count($attempts);
+    }
+
+    /** Metadata-only keyset pagination; never load a page of large JSON snapshots. */
+    public function listArchives(int $sessionId, int $beforeId = 0, int $limit = 25, ?int $attemptId = null): array
+    {
+        $this->currentAdminId(); $this->requireSession($sessionId);
+        $limit = max(1, min(50, $limit));
+        $where = 'session_id = :sid'; $params = ['sid' => $sessionId];
+        if ($beforeId > 0) { $where .= ' AND id < :before'; $params['before'] = $beforeId; }
+        if ($attemptId !== null) { $where .= ' AND source_attempt_id = :aid'; $params['aid'] = $attemptId; }
+        $stmt = $this->db->prepare('SELECT id, session_id, source_attempt_id, generation, format_version, actor_admin_id, actor_name, archived_at, first_name, last_name, incident_count, status, finished_at, event_count FROM quiz_attempt_archives WHERE ' . $where . ' ORDER BY id DESC LIMIT ' . ($limit + 1));
+        $stmt->execute($params); $rows = $stmt->fetchAll();
+        $more = count($rows) > $limit; $rows = array_slice($rows, 0, $limit);
+        return ['rows' => $rows, 'next_before' => $more ? (int)end($rows)['id'] : null];
+    }
+
+    public function getArchive(int $archiveId): ?array
+    {
+        $this->currentAdminId();
+        $sql = 'SELECT ar.* FROM quiz_attempt_archives ar JOIN quiz_sessions s ON s.id = ar.session_id WHERE ar.id = :id';
+        $params = ['id' => $archiveId];
+        if (!$this->isSuperAdmin()) { $sql .= ' AND s.owner_admin_id = :owner'; $params['owner'] = $this->currentAdminId(); }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params); $row = $stmt->fetch();
+        if ($row === false) { return null; }
+        $this->requireSession((int)$row['session_id']);
+        if ((int)$row['format_version'] !== self::ARCHIVE_VERSION || strlen($row['snapshot_json']) > self::MAX_ARCHIVE_BYTES) { throw new RuntimeException('unsupported_archive_format'); }
+        $snapshot = json_decode($row['snapshot_json'], true, 512, JSON_THROW_ON_ERROR);
+        if (($snapshot['format_version'] ?? null) !== self::ARCHIVE_VERSION || !is_array($snapshot['rules'] ?? null) || !is_array($snapshot['attempt'] ?? null) || !is_array($snapshot['events'] ?? null)) { throw new RuntimeException('invalid_archive'); }
+        unset($row['snapshot_json']); $row['snapshot'] = $snapshot;
+        return $row;
+    }
+
+    public function listAudit(int $sessionId, int $beforeId = 0, int $limit = 25): array
+    {
+        $this->currentAdminId(); $this->requireSession($sessionId);
+        $limit = max(1, min(50, $limit));
+        $where = 'session_id = :sid'; $params = ['sid' => $sessionId];
+        if ($beforeId > 0) { $where .= ' AND id < :before'; $params['before'] = $beforeId; }
+        $stmt = $this->db->prepare('SELECT * FROM quiz_session_audit WHERE ' . $where . ' ORDER BY id DESC LIMIT ' . ($limit + 1));
+        $stmt->execute($params); $rows = $stmt->fetchAll();
+        $more = count($rows) > $limit; $rows = array_slice($rows, 0, $limit);
+        foreach ($rows as &$row) {
+            $row['before'] = json_decode($row['before_json'], true, 512, JSON_THROW_ON_ERROR);
+            $row['after'] = json_decode($row['after_json'], true, 512, JSON_THROW_ON_ERROR);
+            unset($row['before_json'], $row['after_json']);
+        }
+        unset($row);
+        return ['rows' => $rows, 'next_before' => $more ? (int)end($rows)['id'] : null];
+    }
 
     private function requireSession(int $id): array
     {
@@ -1211,7 +1453,7 @@ class QuizService
         return substr(hash_hmac('sha256', $ip, $this->hmacSecret), 0, 12);
     }
 
-    private function now(): string
+    protected function now(): string
     {
         return gmdate('Y-m-d H:i:s');
     }

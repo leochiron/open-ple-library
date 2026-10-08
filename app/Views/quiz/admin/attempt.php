@@ -45,6 +45,7 @@ $overQuota = (int)$attempt['incident_count'] >= $maxIncidents;
         <div class="quiz-admin-actions">
             <a class="btn primary" href="/quiz-admin/report?id=<?php echo (int)$attempt['id']; ?>" target="_blank"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_report'), ENT_QUOTES, 'UTF-8'); ?></a>
             <a class="btn ghost" href="/quiz-admin/session?id=<?php echo (int)$session['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.back_session'), ENT_QUOTES, 'UTF-8'); ?></a>
+            <a class="btn ghost" href="/quiz-admin/history?id=<?php echo (int)$session['id']; ?>&amp;attempt_id=<?php echo (int)$attempt['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.history.title'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
     </div>
 </section>

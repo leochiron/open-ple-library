@@ -118,6 +118,40 @@ CREATE INDEX IF NOT EXISTS idx_quiz_students_session ON quiz_students(session_id
 CREATE INDEX IF NOT EXISTS idx_quiz_attempts_session ON quiz_attempts(session_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_events_attempt ON quiz_events(attempt_id);
 CREATE INDEX IF NOT EXISTS idx_admin_users_status ON admin_users(status);
+
+CREATE TABLE IF NOT EXISTS quiz_attempt_archives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    source_attempt_id INTEGER NOT NULL,
+    generation TEXT NOT NULL,
+    format_version INTEGER NOT NULL,
+    actor_admin_id INTEGER NOT NULL,
+    actor_name TEXT NOT NULL,
+    archived_at TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    incident_count INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    finished_at TEXT,
+    event_count INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    UNIQUE(session_id, generation, source_attempt_id)
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_archives_session ON quiz_attempt_archives(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_quiz_archives_attempt ON quiz_attempt_archives(session_id, source_attempt_id, id);
+
+CREATE TABLE IF NOT EXISTS quiz_session_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    actor_admin_id INTEGER NOT NULL,
+    actor_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    format_version INTEGER NOT NULL DEFAULT 1,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_audit_session ON quiz_session_audit(session_id, id);
 SQL);
 
         // Migrations for databases created before these columns existed
@@ -126,6 +160,7 @@ SQL);
         $this->ensureColumn('quiz_sessions', 'reload_is_incident', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_events', 'excused', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_sessions', 'tracking_generation', 'TEXT');
+        $this->ensureColumn('quiz_sessions', 'history_revision', 'INTEGER NOT NULL DEFAULT 0');
         foreach (['event_uid', 'absence_uid', 'source', 'related_event_uid', 'tracking_generation'] as $column) {
             $this->ensureColumn('quiz_events', $column, 'TEXT');
         }
