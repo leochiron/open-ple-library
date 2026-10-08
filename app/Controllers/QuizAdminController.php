@@ -222,6 +222,7 @@ class QuizAdminController
             'students' => $this->quiz->listStudents((int)$session['id']),
             'attempts' => $this->quiz->listAttempts((int)$session['id']),
             'recentEvents' => array_slice($this->quiz->listEvents((int)$session['id']), 0, 30),
+            'rulesVersion' => $this->quiz->rulesVersion($session),
             'flash' => (string)($_GET['flash'] ?? ''),
             'admin' => $this->currentAdmin,
             'admins' => $this->isSuperAdmin() ? $this->auth->listAdmins() : [],
@@ -471,7 +472,12 @@ class QuizAdminController
     {
         $session = $this->requireSessionFromQuery();
         $after = (int)($_GET['after'] ?? 0);
-        $events = $this->quiz->listEventsSince((int)$session['id'], $after);
+        $version = $this->quiz->rulesVersion($session);
+        $requestedVersion = (string)($_GET['rules_version'] ?? '');
+        $reset = $requestedVersion !== '' && !hash_equals($version, $requestedVersion);
+        $events = $reset
+            ? $this->quiz->listRecentEvents((int)$session['id'])
+            : $this->quiz->listEventsSince((int)$session['id'], $after);
 
         $rows = array_map(static function (array $e): array {
             return [
@@ -488,7 +494,7 @@ class QuizAdminController
         }, $events);
 
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['events' => $rows]);
+        echo json_encode(['events' => $rows, 'rules_version' => $version, 'reset' => $reset]);
     }
 
     private function apiAttempts(): void

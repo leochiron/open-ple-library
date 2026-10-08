@@ -179,6 +179,8 @@ Des préréglages « souple », « normal » et « strict » peuvent rester disp
 
 Décision du 8 octobre 2026 — les paramètres modifiés sont transmis aux pages déjà ouvertes : durée, quota, seuil hors page, plein écran et rechargement. La salle élève, la session formateur et le tableau projeté actualisent les règles au prochain rafraîchissement, sans remplacer le Google Form en cours. Activer le plein écran après ouverture doit fonctionner même s'il était initialement facultatif ; le désactiver retire le contrôle. Le quota courant pilote les compteurs et couleurs. Les fins et reprises confirmées par le serveur ainsi que les champs d'édition non enregistrés sont conservés. Le lot 1 est défini dans `SPEC_EXECUTION_QUIZ_LIVE_SETTINGS.md` ; il ne requalifie pas encore l'historique des événements, prévu au lot 2.
 
+Complément du lot 2 — à l'enregistrement, les nouvelles règles requalifient l'historique `hidden`, `blur`, `fullscreen_exit` et `reload`, puis recalculent tous les compteurs et statuts dans la même transaction. Les types, durées et dates bruts, excuses et fins déclarées restent conservés. Le fil formateur actualise les anciennes lignes lorsque la version de règles change ; le tableau projeté ne rejoue pas les anciennes notifications. Les détails, rapports et exports reflètent la qualification courante lorsqu'ils sont ouverts ou générés. Spécification : `SPEC_EXECUTION_QUIZ_RECLASSIFY.md`.
+
 - génération d’un PIN temporaire ;
 - écran projetable ;
 - état connecté/déconnecté ;
