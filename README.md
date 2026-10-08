@@ -473,6 +473,7 @@ php tests/QuizIncidentReclassificationTest.php
 php tests/QuizEventJournalTest.php
 php tests/QuizHistoryAuditTest.php
 php tests/QuizManualAccessTest.php
+php tests/QuizTechnicalOverrideTest.php
 node tests/QuizLiveSettingsJsTest.js
 node tests/QuizEventJournalJsTest.js
 node tests/QuizHistoryJsTest.js
@@ -508,8 +509,21 @@ payloads. Suspended rooms keep polling/observations and preserve an existing
 iframe; completion and replay are checked against fresh server policy. Student
 mutations use session CSRF, added only at transport time to journal retries and
 Beacon requests. See `SPEC_EXECUTION_QUIZ_MANUAL_ACCESS.md` for 4a routes,
-snapshots, tests and publication. Technical overrides and automatic checks are
-reserved for the following increments.
+snapshots, tests and publication.
+
+Private technical overrides now select browser, tracking or both scopes for one
+student and the current generation, including in the first lobby before joining.
+They preserve original reasons/identities and expire durably on close, ordinary
+launch or reset; reset snapshots them before expiration. Manual blocks remain
+absolute. The shared evaluator keeps each browser context independent; its
+production cause provider is empty until increments 5/6 add automatic checks.
+The teacher sees neutral override labels, and students/board only the final
+generic permission. `QuizTechnicalOverrideTest.php` covers strict scopes and
+UTF-8 bounds, two browser contexts, finish/replay, multi-batch expiration and SQL
+rollback, old/new snapshots, complete CSV, CSRF and ownership. The existing
+`QuizManualAccessJsTest.js` verifies the unchanged reversible suspension/iframe
+contract. See `SPEC_EXECUTION_QUIZ_TECHNICAL_OVERRIDE.md` for the 4b contract,
+additive schema and publication manifest.
 
 PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
 therefore verifies the presence and ordering of every sensitive Apache rule when

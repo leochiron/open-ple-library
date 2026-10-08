@@ -165,6 +165,31 @@ CREATE TABLE IF NOT EXISTS quiz_student_access (
     last_name TEXT NOT NULL,
     PRIMARY KEY(session_id, student_id)
 );
+
+CREATE TABLE IF NOT EXISTS quiz_technical_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    tracking_generation TEXT NOT NULL,
+    scope_browser INTEGER NOT NULL CHECK (scope_browser IN (0, 1)),
+    scope_tracking INTEGER NOT NULL CHECK (scope_tracking IN (0, 1)),
+    status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'expired')),
+    grant_reason TEXT NOT NULL,
+    granted_at TEXT NOT NULL,
+    grant_actor_id INTEGER NOT NULL,
+    grant_actor_name TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    ended_at TEXT,
+    end_actor_id INTEGER,
+    end_actor_name TEXT,
+    end_reason TEXT,
+    end_kind TEXT,
+    CHECK (scope_browser = 1 OR scope_tracking = 1)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_override_active ON quiz_technical_overrides(session_id, student_id, tracking_generation) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_quiz_override_session ON quiz_technical_overrides(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_quiz_override_student ON quiz_technical_overrides(session_id, student_id, id);
 SQL);
 
         // Migrations for databases created before these columns existed

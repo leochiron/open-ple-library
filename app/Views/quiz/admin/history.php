@@ -41,6 +41,16 @@ $esc = static fn($value): string => htmlspecialchars((string)$value, ENT_QUOTES,
         <?php endif; ?>
         <?php if ($archives['next_before'] !== null): ?><a class="btn ghost" href="/quiz-admin/history?id=<?php echo $sid; ?>&amp;before=<?php echo (int)$archives['next_before']; ?>&amp;attempt_id=<?php echo $attemptFilter; ?>"><?php echo $esc($i18n->t('quiz.history.older')); ?></a><?php endif; ?>
 
+        <?php if (isset($technicalOverrides)): ?>
+            <h2><?php echo $esc($i18n->t('quiz.override.history')); ?></h2>
+            <?php foreach ($technicalOverrides['rows'] as $overrideHistoryEntry): ?>
+                <details><summary><?php echo $esc(trim($overrideHistoryEntry['first_name'] . ' ' . $overrideHistoryEntry['last_name'])); ?> · #<?php echo (int)$overrideHistoryEntry['student_id']; ?> · <?php echo $esc($i18n->t('quiz.override.status.' . $overrideHistoryEntry['status'])); ?></summary>
+                    <?php $technicalOverride = $overrideHistoryEntry; include __DIR__ . '/override-details.php'; ?>
+                </details>
+            <?php endforeach; unset($overrideHistoryEntry); ?>
+            <?php if ($technicalOverrides['rows'] === []): ?><p><?php echo $esc($i18n->t('quiz.history.empty')); ?></p><?php endif; ?>
+            <?php if ($technicalOverrides['next_before'] !== null): ?><a class="btn ghost" href="/quiz-admin/history?id=<?php echo $sid; ?>&amp;override_before=<?php echo (int)$technicalOverrides['next_before']; ?>"><?php echo $esc($i18n->t('quiz.history.older')); ?></a><?php endif; ?>
+        <?php endif; ?>
         <h2><?php echo $esc($i18n->t('quiz.history.audit')); ?></h2>
         <p class="quiz-hint"><?php echo $esc($i18n->t('quiz.history.audit_hint')); ?></p>
         <?php if ($audit['rows'] === []): ?><p><?php echo $esc($i18n->t('quiz.history.empty')); ?></p>

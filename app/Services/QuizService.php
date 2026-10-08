@@ -100,8 +100,8 @@ class QuizService
         $slug = $this->generateSlug($title);
 
         $stmt = $this->db->prepare(
-            'INSERT INTO quiz_sessions (owner_admin_id, slug, title, google_form_url, google_form_edit_url, attempt_entry_id, duration_minutes, max_incidents, min_away_seconds, require_fullscreen, reload_is_incident, state)
-             VALUES (:owner, :slug, :title, :url, :edit_url, :entry, :duration, :max_incidents, :min_away, :fullscreen, :reload, :state)'
+            'INSERT INTO quiz_sessions (owner_admin_id, slug, title, google_form_url, google_form_edit_url, attempt_entry_id, duration_minutes, max_incidents, min_away_seconds, require_fullscreen, reload_is_incident, state, tracking_generation)
+             VALUES (:owner, :slug, :title, :url, :edit_url, :entry, :duration, :max_incidents, :min_away, :fullscreen, :reload, :state, :generation)'
         );
         $stmt->execute([
             'owner' => $ownerId,
@@ -116,6 +116,7 @@ class QuizService
             'fullscreen' => isset($data['require_fullscreen']) ? 1 : 0,
             'reload' => isset($data['reload_is_incident']) ? 1 : 0,
             'state' => 'armed',
+            'generation' => bin2hex(random_bytes(16)),
         ]);
 
         $sessionId = (int)$this->db->lastInsertId();
@@ -341,6 +342,7 @@ class QuizService
     {
         $this->sessionMutation($sessionId, 'launched', function (array $session) use ($sessionId): void {
             if (!in_array($session['state'], ['lobby', 'running'], true)) { throw new RuntimeException('invalid_state'); }
+            $this->expireTechnicalOverrides($sessionId, 'new_launch');
             $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'running', started_at = :now, tracking_generation = :generation WHERE id = :id");
             $stmt->execute(['now' => $this->now(), 'generation' => bin2hex(random_bytes(16)), 'id' => $sessionId]);
         });
@@ -361,6 +363,7 @@ class QuizService
         $this->sessionMutation($sessionId, 'reset', function (array $session) use ($sessionId): int {
             if (!in_array($session['state'], ['lobby', 'running'], true)) { throw new RuntimeException('invalid_state'); }
             $archived = $this->archiveAttempts($session);
+            $this->expireTechnicalOverrides($sessionId, 'reset');
             $stmt = $this->db->prepare('DELETE FROM quiz_events WHERE attempt_id IN (SELECT id FROM quiz_attempts WHERE session_id = :sid)');
             $stmt->execute(['sid' => $sessionId]);
             $stmt = $this->db->prepare("UPDATE quiz_attempts SET incident_count = 0, status = 'started', finished_at = NULL WHERE session_id = :sid");
@@ -374,6 +377,7 @@ class QuizService
     public function close(int $sessionId): void
     {
         $this->sessionMutation($sessionId, 'closed', function (array $session) use ($sessionId): void {
+            $this->expireTechnicalOverrides($sessionId, 'closed');
             $stmt = $this->db->prepare("UPDATE quiz_sessions SET state = 'closed', closed_at = :now, access_pin = NULL WHERE id = :id");
             $stmt->execute(['now' => $this->now(), 'id' => $sessionId]);
         });
@@ -792,19 +796,18 @@ class QuizService
     public function getStudentAccess(int $sessionId, int $studentId): array
     {
         $this->currentAdminId();
-        $this->requireSession($sessionId);
+        $session = $this->requireSession($sessionId);
         $stmt = $this->db->prepare('SELECT first_name, last_name FROM quiz_students WHERE id = :student AND session_id = :sid');
         $stmt->execute(['student' => $studentId, 'sid' => $sessionId]);
         $student = $stmt->fetch();
         if ($student === false) { throw new RuntimeException('resource_not_found'); }
-        return $this->accessContext($sessionId, $studentId, $student);
+        return $this->accessContext($sessionId, $studentId, $student) + ['technical_override' => $this->activeTechnicalOverride($sessionId, $studentId, (string)$session['tracking_generation'])];
     }
 
     public function setManualAccess(int $sessionId, int $studentId, bool $blocked, string $reason): void
     {
         $this->currentAdminId();
-        $reason = trim((string)preg_replace('/\s+/u', ' ', $reason));
-        if ($reason === '' || mb_strlen($reason) > 1000 || preg_match('/[\x00-\x1f\x7f]/u', $reason)) { throw new RuntimeException('invalid_access_reason'); }
+        $reason = $this->normalizeAccessReason($reason);
         $this->db->beginTransaction();
         try {
             $this->lockTeacherSession($sessionId);
@@ -825,10 +828,152 @@ class QuizService
     /** Public decision exposes no cause, policy row, actor or technical detail. */
     public function studentAccessAllowed(int $sessionId, int $studentId): bool
     {
+        if (!$this->projectedAccessAllowed($sessionId, $studentId)) { return QuizAccessEvaluator::evaluate(true, []); }
+        $session = $this->requireSession($sessionId);
+        $generation = (string)$session['tracking_generation'];
+        $override = $this->activeTechnicalOverride($sessionId, $studentId, $generation);
+        $context = $this->technicalAccessContext($sessionId, $studentId, $generation);
+        return QuizAccessEvaluator::evaluate(false, $this->currentTechnicalCauses($context), $override['scopes'] ?? []);
+    }
+
+    /** Board is a generic projection, not an aggregate of different browser contexts. */
+    public function projectedAccessAllowed(int $sessionId, int $studentId): bool
+    {
         $stmt = $this->db->prepare('SELECT COALESCE(ac.manual_blocked, 0) FROM quiz_students st LEFT JOIN quiz_student_access ac ON ac.session_id = st.session_id AND ac.student_id = st.id WHERE st.session_id = :sid AND st.id = :student');
         $stmt->execute(['sid' => $sessionId, 'student' => $studentId]);
         $value = $stmt->fetchColumn();
         return $value !== false && (int)$value === 0;
+    }
+
+    protected function technicalAccessContext(int $sessionId, int $studentId, string $generation): array
+    {
+        $attemptId = $_SESSION['quiz_attempt_id'] ?? null;
+        $attempt = is_int($attemptId) ? $this->getAttempt($attemptId) : null;
+        if ($attempt === null || (int)$attempt['session_id'] !== $sessionId || (int)$attempt['student_id'] !== $studentId) { $attemptId = null; }
+        return ['session_id' => $sessionId, 'student_id' => $studentId, 'attempt_id' => $attemptId, 'tracking_generation' => $generation, 'context_ref' => null];
+    }
+
+    /** No automatic browser/tracking policy is enabled in 4b. 5/6 resolve cookie leases here. */
+    protected function currentTechnicalCauses(array $context): array { return []; }
+
+    private function normalizeAccessReason(string $reason): string
+    {
+        $reason = trim((string)preg_replace('/\s+/u', ' ', $reason));
+        if ($reason === '' || mb_strlen($reason) > 1000 || preg_match('/[\x00-\x1f\x7f]/u', $reason)) { throw new RuntimeException('invalid_access_reason'); }
+        return $reason;
+    }
+
+    public function grantTechnicalOverride(int $sessionId, int $studentId, string $expectedGeneration, array $scopes, string $reason): int
+    {
+        $this->currentAdminId();
+        $scopes = QuizAccessEvaluator::normalizeScopes($scopes);
+        $reason = $this->normalizeAccessReason($reason);
+        $this->db->beginTransaction();
+        try {
+            $student = $this->overrideMutationContext($sessionId, $studentId, $expectedGeneration);
+            if ($this->activeTechnicalOverride($sessionId, $studentId, $expectedGeneration) !== null) { throw new RuntimeException('override_exists'); }
+            $actor = $this->auditActor();
+            $stmt = $this->db->prepare("INSERT INTO quiz_technical_overrides(session_id, student_id, tracking_generation, scope_browser, scope_tracking, status, grant_reason, granted_at, grant_actor_id, grant_actor_name, first_name, last_name) VALUES(:sid, :student, :generation, :browser, :tracking, 'active', :reason, :now, :actor, :name, :first, :last)");
+            $stmt->execute(['sid' => $sessionId, 'student' => $studentId, 'generation' => $expectedGeneration,
+                'browser' => in_array('browser', $scopes, true) ? 1 : 0, 'tracking' => in_array('tracking', $scopes, true) ? 1 : 0,
+                'reason' => $reason, 'now' => $this->now(), 'actor' => $actor['id'], 'name' => $actor['name'], 'first' => $student['first_name'], 'last' => $student['last_name']]);
+            $id = (int)$this->db->lastInsertId();
+            $after = $this->activeTechnicalOverride($sessionId, $studentId, $expectedGeneration);
+            $this->appendAudit($sessionId, 'override_granted', ['student_id' => $studentId, 'first_name' => $student['first_name'], 'last_name' => $student['last_name'], 'technical_override' => null], $after);
+            $this->db->commit();
+            return $id;
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
+        }
+    }
+
+    public function revokeTechnicalOverride(int $sessionId, int $studentId, int $overrideId, string $expectedGeneration, string $reason): void
+    {
+        $this->currentAdminId();
+        $reason = $this->normalizeAccessReason($reason);
+        $this->db->beginTransaction();
+        try {
+            $this->overrideMutationContext($sessionId, $studentId, $expectedGeneration);
+            $before = $this->activeTechnicalOverride($sessionId, $studentId, $expectedGeneration);
+            if ($before === null || $before['id'] !== $overrideId) { throw new RuntimeException('override_not_active'); }
+            $after = $this->endTechnicalOverride($before, 'revoked', 'revoked', $reason);
+            $this->appendAudit($sessionId, 'override_revoked', $before, $after);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
+        }
+    }
+
+    private function overrideMutationContext(int $sessionId, int $studentId, string $expectedGeneration): array
+    {
+        $this->lockTeacherSession($sessionId);
+        $session = $this->requireSession($sessionId);
+        if (!in_array($session['state'], ['lobby', 'running'], true)) { throw new RuntimeException('invalid_override_state'); }
+        if (preg_match('/^[a-f0-9]{32}$/D', $expectedGeneration) !== 1 || !hash_equals((string)$session['tracking_generation'], $expectedGeneration)) { throw new RuntimeException('stale_generation'); }
+        return $this->getStudentAccess($sessionId, $studentId);
+    }
+
+    private function activeTechnicalOverride(int $sessionId, int $studentId, string $generation): ?array
+    {
+        $stmt = $this->db->prepare("SELECT * FROM quiz_technical_overrides WHERE session_id = :sid AND student_id = :student AND tracking_generation = :generation AND status = 'active'");
+        $stmt->execute(['sid' => $sessionId, 'student' => $studentId, 'generation' => $generation]);
+        $row = $stmt->fetch();
+        return $row !== false ? $this->technicalOverrideRow($row) : null;
+    }
+
+    private function technicalOverrideRow(array $row): array
+    {
+        $row['scopes'] = [];
+        if ((int)$row['scope_browser'] === 1) { $row['scopes'][] = 'browser'; }
+        if ((int)$row['scope_tracking'] === 1) { $row['scopes'][] = 'tracking'; }
+        unset($row['scope_browser'], $row['scope_tracking']);
+        foreach (['id', 'session_id', 'student_id', 'grant_actor_id'] as $key) { $row[$key] = (int)$row[$key]; }
+        $row['end_actor_id'] = $row['end_actor_id'] !== null ? (int)$row['end_actor_id'] : null;
+        return $row;
+    }
+
+    private function endTechnicalOverride(array $before, string $status, string $kind, string $reason): array
+    {
+        $actor = $this->auditActor();
+        $stmt = $this->db->prepare("UPDATE quiz_technical_overrides SET status = :status, ended_at = :now, end_actor_id = :actor, end_actor_name = :name, end_reason = :reason, end_kind = :kind WHERE id = :id AND status = 'active'");
+        $after = array_merge($before, ['status' => $status, 'ended_at' => $this->now(), 'end_actor_id' => $actor['id'], 'end_actor_name' => $actor['name'], 'end_reason' => $reason, 'end_kind' => $kind]);
+        $stmt->execute(['status' => $status, 'now' => $after['ended_at'], 'actor' => $actor['id'], 'name' => $actor['name'], 'reason' => $reason, 'kind' => $kind, 'id' => $before['id']]);
+        if ($stmt->rowCount() !== 1) { throw new RuntimeException('override_not_active'); }
+        return $after;
+    }
+
+    /** All active rows of this session expire, including stale generations/orphaned students. */
+    private function expireTechnicalOverrides(int $sessionId, string $kind): void
+    {
+        if (!$this->db->inTransaction() || !in_array($kind, ['closed', 'new_launch', 'reset'], true)) { throw new RuntimeException('invalid_override_expiration'); }
+        $lastId = 0;
+        do {
+            // Close the read cursor before updating this table: SQLite does not
+            // guarantee a stable SELECT traversal while its rows are mutated.
+            $stmt = $this->db->prepare("SELECT * FROM quiz_technical_overrides WHERE session_id = :sid AND status = 'active' AND id > :last ORDER BY id LIMIT 50");
+            $stmt->execute(['sid' => $sessionId, 'last' => $lastId]);
+            $rows = $stmt->fetchAll(); $stmt->closeCursor();
+            foreach ($rows as $row) {
+                $before = $this->technicalOverrideRow($row); $lastId = $before['id'];
+                $after = $this->endTechnicalOverride($before, 'expired', $kind, $kind);
+                $this->appendAudit($sessionId, 'override_expired', $before, $after);
+            }
+        } while (count($rows) === 50);
+    }
+
+    public function listTechnicalOverrides(int $sessionId, ?int $studentId = null, int $beforeId = 0, int $limit = 25): array
+    {
+        $this->currentAdminId(); $this->requireSession($sessionId);
+        $limit = max(1, min(50, $limit));
+        $where = 'session_id = :sid'; $params = ['sid' => $sessionId];
+        if ($studentId !== null) { $where .= ' AND student_id = :student'; $params['student'] = $studentId; }
+        if ($beforeId > 0) { $where .= ' AND id < :before'; $params['before'] = $beforeId; }
+        $stmt = $this->db->prepare('SELECT * FROM quiz_technical_overrides WHERE ' . $where . ' ORDER BY id DESC LIMIT ' . ($limit + 1));
+        $stmt->execute($params); $rows = $stmt->fetchAll(); $more = count($rows) > $limit;
+        $rows = array_map(fn(array $row): array => $this->technicalOverrideRow($row), array_slice($rows, 0, $limit));
+        return ['rows' => $rows, 'next_before' => $more ? (int)end($rows)['id'] : null];
     }
 
     private function accessContext(int $sessionId, int $studentId, array $student): array
@@ -1132,6 +1277,15 @@ class QuizService
             $stmt = $this->db->prepare('SELECT e.*, st.first_name, st.last_name FROM quiz_events e JOIN quiz_attempts a ON a.id = e.attempt_id JOIN quiz_students st ON st.id = a.student_id WHERE a.session_id = :sid ORDER BY e.id');
             $stmt->execute(['sid' => $sessionId]);
             while ($event = $stmt->fetch()) { $this->csvRow($out, $this->csvEventRow($event), ['courant']); }
+            $stmt->closeCursor();
+            $stmt = $this->db->prepare('SELECT * FROM quiz_technical_overrides WHERE session_id = :sid ORDER BY id');
+            $stmt->execute(['sid' => $sessionId]);
+            while ($row = $stmt->fetch()) {
+                $override = $this->technicalOverrideRow($row);
+                $record = array_fill(0, 23, ''); $record[0] = 'derogation_technique'; $record[1] = $override['last_name']; $record[2] = $override['first_name'];
+                $record[8] = $override['status']; $record[14] = $this->toParisTime($override['granted_at']); $record[22] = $override['tracking_generation'];
+                $this->csvRow($out, $record, ['derogation', '', '', '', $override['grant_actor_id'], $override['grant_actor_name'], 1, '', '', json_encode(['technical_override' => $override], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+            }
             $stmt->closeCursor();
             $before = 0;
             do {

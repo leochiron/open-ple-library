@@ -124,6 +124,8 @@ class QuizAdminController
                 $this->resetSession();
             } elseif (in_array($subPath, ['/access/block', '/access/lift'], true) && $method === 'POST') {
                 $this->changeManualAccess($subPath === '/access/block');
+            } elseif (in_array($subPath, ['/access/override/grant', '/access/override/revoke'], true) && $method === 'POST') {
+                $this->changeTechnicalOverride($subPath === '/access/override/grant');
             } elseif ($subPath === '/report' && $method === 'GET') {
                 $this->integrityReport();
             } elseif ($subPath === '/board' && $method === 'GET') {
@@ -439,6 +441,7 @@ class QuizAdminController
             'session' => $session, 'attemptFilter' => $attemptFilter,
             'archives' => $this->quiz->listArchives((int)$session['id'], (int)($_GET['before'] ?? 0), 25, $attemptFilter > 0 ? $attemptFilter : null),
             'audit' => $this->quiz->listAudit((int)$session['id'], (int)($_GET['audit_before'] ?? 0)),
+            'technicalOverrides' => $this->quiz->listTechnicalOverrides((int)$session['id'], null, (int)($_GET['override_before'] ?? 0)),
         ], $this->i18n, $this->config);
     }
 
@@ -524,7 +527,7 @@ class QuizAdminController
         $session = $this->requireSessionFromQuery();
         $students = $this->quiz->listStudents((int)$session['id']);
         $students = array_map(fn(array $student): array => ['id' => (int)$student['id'], 'first_name' => $student['first_name'], 'last_name' => $student['last_name'],
-            'access_allowed' => $this->quiz->studentAccessAllowed((int)$session['id'], (int)$student['id'])], $students);
+            'access_allowed' => $this->quiz->projectedAccessAllowed((int)$session['id'], (int)$student['id'])], $students);
         $i18n = $this->i18n;
         // Standalone fullscreen page, outside the site layout
         include __DIR__ . '/../Views/quiz/admin/board.php';
@@ -648,10 +651,36 @@ class QuizAdminController
                 'first_name' => $student['first_name'], 'last_name' => $student['last_name'],
                 'incident_count' => (int)($attempt['incident_count'] ?? 0), 'status' => $attempt['status'] ?? 'waiting',
                 'finished' => !empty($attempt['finished_at']), 'connected' => $last !== null && $state['server_now'] - $last < 30,
-                'access_allowed' => $this->quiz->studentAccessAllowed((int)$session['id'], (int)$student['id'])];
+                'access_allowed' => $this->quiz->projectedAccessAllowed((int)$session['id'], (int)$student['id'])];
         }
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(array_merge($state, ['pin' => $session['access_pin'] ?? null, 'attempts' => $rows]));
+    }
+
+    private function changeTechnicalOverride(bool $grant): void
+    {
+        foreach ($grant ? ['id', 'student_id'] : ['id', 'student_id', 'override_id'] as $field) {
+            $value = $_POST[$field] ?? null;
+            if ((!is_int($value) && !(is_string($value) && ctype_digit($value))) || (int)$value < 1) {
+                http_response_code(400); echo htmlspecialchars($this->i18n->t('quiz.override.invalid'), ENT_QUOTES, 'UTF-8'); return;
+            }
+        }
+        $sid = (int)$_POST['id']; $studentId = (int)$_POST['student_id'];
+        try {
+            if (!is_string($_POST['generation'] ?? null) || !is_string($_POST['reason'] ?? null)) { throw new RuntimeException('invalid_access_reason'); }
+            if ($grant) {
+                if (!is_array($_POST['scopes'] ?? null)) { throw new RuntimeException('invalid_override_scopes'); }
+                $this->quiz->grantTechnicalOverride($sid, $studentId, $_POST['generation'], $_POST['scopes'], $_POST['reason']);
+            } else {
+                $this->quiz->revokeTechnicalOverride($sid, $studentId, (int)$_POST['override_id'], $_POST['generation'], $_POST['reason']);
+            }
+            $flash = $this->i18n->t('quiz.override.saved');
+        } catch (RuntimeException $e) {
+            if (!in_array($e->getMessage(), ['invalid_access_reason', 'invalid_override_scopes', 'invalid_override_state', 'stale_generation', 'override_exists', 'override_not_active'], true)) { throw $e; }
+            $flash = $this->i18n->t('quiz.override.invalid');
+        }
+        header('Location: /quiz-admin/session?id=' . $sid . '&flash=' . urlencode($flash));
+        exit;
     }
 
     private function users(): void
