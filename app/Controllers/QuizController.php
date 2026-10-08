@@ -37,6 +37,7 @@ class QuizController
 
     public function handle(string $subPath): void
     {
+        header('Cache-Control: no-store');
         $subPath = '/' . trim($subPath, '/');
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -64,7 +65,7 @@ class QuizController
                 echo json_encode(['error' => 'access_unavailable']);
             } else {
                 http_response_code(500);
-                echo 'Erreur interne.';
+                echo htmlspecialchars($this->i18n->t('quiz.journal.detached'), ENT_QUOTES, 'UTF-8');
             }
             error_log('Quiz error: ' . $e->getMessage() . ' | ' . $e->getFile() . ':' . $e->getLine());
         }
@@ -77,30 +78,40 @@ class QuizController
         render('quiz/join', [
             'error' => $error,
             'title' => $this->i18n->t('quiz.join.title'),
+            'csrfToken' => $this->csrfToken(),
         ], $this->i18n, $this->config);
     }
 
     private function join(): void
     {
-        $pin = (string)($_POST['pin'] ?? '');
-        $code = (string)($_POST['code'] ?? '');
+        if (!$this->validCsrf($_POST)) {
+            http_response_code(403);
+            $this->showJoinForm($this->i18n->t('quiz.journal.detached'));
+            return;
+        }
+        if (!is_string($_POST['pin'] ?? null) || !is_string($_POST['code'] ?? null)) {
+            $this->showJoinForm($this->i18n->t('quiz.journal.detached'));
+            return;
+        }
+        $pin = $_POST['pin'];
+        $code = $_POST['code'];
         $consent = isset($_POST['consent']);
 
         if (!$consent) {
-            $this->showJoinForm($this->i18n->t('quiz.join.error_consent'));
+            $this->showJoinForm($this->i18n->t('quiz.journal.detached'));
             return;
         }
 
         $session = $this->quiz->findSessionByPin($pin);
         if ($session === null) {
-            $this->showJoinForm($this->i18n->t('quiz.join.error_pin'));
+            $this->showJoinForm($this->i18n->t('quiz.journal.detached'));
             return;
         }
 
         try {
             $attempt = $this->quiz->joinAttempt($session, $code);
         } catch (RuntimeException $e) {
-            $this->showJoinForm($this->i18n->t('quiz.join.error_code'));
+            $this->showJoinForm($this->i18n->t('quiz.journal.detached'));
             return;
         }
 
@@ -121,6 +132,7 @@ class QuizController
         [$session, $attempt] = $context;
 
         $state = $this->quiz->buildStatePayload($session, $attempt);
+        $state['csrf_token'] = $this->csrfToken();
 
         // Standalone page (no site layout): the exam needs the full viewport.
         $i18n = $this->i18n;
@@ -132,12 +144,13 @@ class QuizController
     {
         $context = $this->requireApiContext();
         [$session, $attempt] = $context;
-        $this->json($this->quiz->buildStatePayload($session, $attempt));
+        $this->json(array_merge($this->quiz->buildStatePayload($session, $attempt), ['csrf_token' => $this->csrfToken()]));
     }
 
     private function apiHeartbeat(): void
     {
         $context = $this->requireApiContext();
+        if (!$this->validCsrf($_POST)) { $this->json(['error' => 'access_unavailable'], 403); return; }
         [, $attempt] = $context;
         $this->quiz->recordHeartbeat((int)$attempt['id']);
         $this->json(['ok' => true]);
@@ -156,6 +169,8 @@ class QuizController
             $data = $_POST;
         }
 
+        if (!$this->validCsrf($data)) { $this->json(['error' => 'access_unavailable'], 403); return; }
+
         if (!is_string($data['type'] ?? null) || (isset($data['away_seconds']) && !is_int($data['away_seconds']) && !(is_string($data['away_seconds']) && ctype_digit($data['away_seconds'])))) {
             $this->json(['error' => 'access_unavailable'], 400);
             return;
@@ -164,9 +179,11 @@ class QuizController
         $awaySeconds = (int)($data['away_seconds'] ?? 0);
 
         try {
-            $metadata = array_diff_key($data, ['type' => true, 'away_seconds' => true]);
+            $metadata = array_diff_key($data, ['type' => true, 'away_seconds' => true, '_csrf' => true]);
             $result = $this->quiz->recordEvent($session, $attempt, $type, $awaySeconds, $metadata);
         } catch (\PDOException $e) {
+            error_log(sprintf('Quiz event failed: session_id=%d; attempt_id=%d; message=%s; file=%s:%d',
+                (int)$session['id'], (int)$attempt['id'], str_replace(["\r", "\n"], ' ', mb_substr($e->getMessage(), 0, 512)), $e->getFile(), $e->getLine()));
             $this->json(['error' => 'access_unavailable'], 503);
             return;
         } catch (RuntimeException $e) {
@@ -219,7 +236,22 @@ class QuizController
     private function json(array $data, int $status = 200): void
     {
         http_response_code($status);
+        header('Cache-Control: no-store');
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode($data);
+    }
+
+    private function csrfToken(): string
+    {
+        if (!isset($_SESSION['quiz_student_csrf']) || !is_string($_SESSION['quiz_student_csrf'])) {
+            $_SESSION['quiz_student_csrf'] = bin2hex(random_bytes(24));
+        }
+        return $_SESSION['quiz_student_csrf'];
+    }
+
+    private function validCsrf(array $data): bool
+    {
+        $given = $data['_csrf'] ?? ($_SERVER['HTTP_X_QUIZ_CSRF'] ?? null);
+        return is_string($given) && $given !== '' && hash_equals($this->csrfToken(), $given);
     }
 }

@@ -472,9 +472,11 @@ php tests/QuizLiveSettingsTest.php
 php tests/QuizIncidentReclassificationTest.php
 php tests/QuizEventJournalTest.php
 php tests/QuizHistoryAuditTest.php
+php tests/QuizManualAccessTest.php
 node tests/QuizLiveSettingsJsTest.js
 node tests/QuizEventJournalJsTest.js
 node tests/QuizHistoryJsTest.js
+node tests/QuizManualAccessJsTest.js
 php tests/RouteIntegrationTest.php
 php tests/WebServerRulesTest.php
 ```
@@ -498,6 +500,16 @@ snapshots, ownership transfer, deletion, SQL rollback, volume limits and streame
 exports; `QuizHistoryJsTest.js` covers reset reconciliation and delayed responses
 without replaying projected alerts. See `SPEC_EXECUTION_QUIZ_HISTORY_AUDIT.md`
 for the additive schema, volume bounds and publication manifest.
+
+Individual manual access blocks are independent of incidents and persist until
+explicitly lifted, including before first connection and across relaunch/reset.
+Teacher-only reasons and atomic audits stay out of student and projected-board
+payloads. Suspended rooms keep polling/observations and preserve an existing
+iframe; completion and replay are checked against fresh server policy. Student
+mutations use session CSRF, added only at transport time to journal retries and
+Beacon requests. See `SPEC_EXECUTION_QUIZ_MANUAL_ACCESS.md` for 4a routes,
+snapshots, tests and publication. Technical overrides and automatic checks are
+reserved for the following increments.
 
 PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
 therefore verifies the presence and ordering of every sensitive Apache rule when

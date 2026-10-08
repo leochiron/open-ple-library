@@ -78,7 +78,7 @@ $eventLabels = [
                 <?php $fullName = trim($st['first_name'] . ' ' . $st['last_name']); ?>
                 <div class="quiz-board__name" title="<?php echo htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8'); ?></div>
                 <div class="quiz-board__count" data-role="count">0</div>
-                <div class="quiz-board__state" data-role="status"><?php echo htmlspecialchars($i18n->t('quiz.admin.board_waiting'), ENT_QUOTES, 'UTF-8'); ?></div>
+                <div class="quiz-board__state" data-role="status"><?php echo htmlspecialchars($i18n->t(($st['access_allowed'] ?? true) ? 'quiz.admin.board_waiting' : 'quiz.access.unavailable'), ENT_QUOTES, 'UTF-8'); ?></div>
                 <div class="quiz-board__last" data-role="last"></div>
             </article>
         <?php endforeach; ?>
@@ -100,12 +100,13 @@ window.QUIZ_BOARD = {
     maxIncidents: <?php echo (int)$session['max_incidents']; ?>,
     historyRevision: <?php echo (int)($session['history_revision'] ?? 0); ?>,
     endpoints: {
-        attempts: '/quiz-admin/api/attempts?id=<?php echo $sid; ?>',
-        events: '/quiz-admin/api/events?id=<?php echo $sid; ?>'
+        attempts: '/quiz-admin/api/board?id=<?php echo $sid; ?>',
+        events: '/quiz-admin/api/board/events?id=<?php echo $sid; ?>'
     },
     labels: {
         events: <?php echo json_encode($eventLabels, JSON_UNESCAPED_UNICODE); ?>,
         waiting: <?php echo json_encode($i18n->t('quiz.admin.board_waiting')); ?>,
+        unavailable: <?php echo json_encode($i18n->t('quiz.access.unavailable')); ?>,
         offline: <?php echo json_encode($i18n->t('quiz.admin.board_offline')); ?>,
         finished: <?php echo json_encode($i18n->t('quiz.admin.board_finished')); ?>,
         ok: <?php echo json_encode($i18n->t('quiz.admin.board_ok')); ?>,
@@ -227,7 +228,13 @@ window.QUIZ_BOARD = {
 
         el.classList.remove('is-waiting', 'is-ok', 'is-warn', 'is-danger', 'is-finished', 'is-offline');
 
-        if (a.finished) {
+        if (a.access_allowed === false) {
+            el.classList.add('is-waiting');
+            if (statusEl) { statusEl.textContent = cfg.labels.unavailable; }
+        } else if (a.attempt_id === null) {
+            el.classList.add('is-waiting');
+            if (statusEl) { statusEl.textContent = cfg.labels.waiting; }
+        } else if (a.finished) {
             el.classList.add('is-finished');
             if (statusEl) { statusEl.textContent = cfg.labels.finished; }
         } else if (a.incident_count >= cfg.maxIncidents) {
@@ -242,7 +249,7 @@ window.QUIZ_BOARD = {
         }
 
         // Offline overlay only matters while the quiz is actually running
-        if (!a.connected && state === 'running' && !a.finished) {
+        if (a.access_allowed !== false && a.attempt_id !== null && !a.connected && state === 'running' && !a.finished) {
             el.classList.add('is-offline');
             if (statusEl) { statusEl.textContent = cfg.labels.offline; }
         }

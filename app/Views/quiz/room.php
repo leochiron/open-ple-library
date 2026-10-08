@@ -51,6 +51,9 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
 
 <main class="quiz-room__main">
     <p id="quiz-tracking-status" class="quiz-hint" role="status" hidden></p>
+    <section id="quiz-access-unavailable" class="quiz-panel" role="status"<?php echo ($state['access_allowed'] ?? true) ? ' hidden' : ''; ?>>
+        <p><?php echo htmlspecialchars($i18n->t('quiz.journal.detached'), ENT_QUOTES, 'UTF-8'); ?></p>
+    </section>
     <h2 class="quiz-student-heading"><?php echo htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8'); ?></h2>
     <p class="quiz-hint">
         <span id="quiz-rule-duration_minutes"><?php echo (int)$session['duration_minutes']; ?></span> min
@@ -137,6 +140,7 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
 <script>
     window.QUIZ_ROOM = {
         attemptId: <?php echo (int)$attempt['id']; ?>,
+        csrfToken: <?php echo json_encode($state['csrf_token'] ?? ''); ?>,
         state: <?php echo json_encode($state); ?>,
         endpoints: {
             state: '/quiz/api/state',

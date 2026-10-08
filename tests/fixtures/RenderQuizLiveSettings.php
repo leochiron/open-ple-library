@@ -25,6 +25,7 @@ $students = [
 $attempt = ['id' => 1, 'first_name' => 'Alice', 'last_name' => 'Alpha', 'incident_count' => 0, 'finished_at' => null];
 $state = [
     'attempt_id' => 1, 'tracking_generation' => str_repeat('a', 32),
+    'access_allowed' => true, 'csrf_token' => str_repeat('c', 48),
     'state' => 'running', 'title' => 'Initial quiz', 'server_now' => time(), 'remaining_seconds' => 900,
     'duration_minutes' => 15, 'max_incidents' => 2, 'min_away_seconds' => 10,
     'require_fullscreen' => false, 'reload_is_incident' => false, 'incident_count' => 0,

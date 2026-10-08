@@ -46,6 +46,9 @@
         function payload(type, source, extra) {
             return Object.assign({ type: type, away_seconds: 0, attempt_id: attempt, tracking_generation: generation, event_uid: uid(), source: source }, extra || {});
         }
+        function transport(p) {
+            return Object.assign({}, p, options.getCsrfToken ? { _csrf: options.getCsrfToken() } : {});
+        }
         function append(p) {
             if (!generation || detached) { return; }
             prune();
@@ -70,12 +73,12 @@
             var timeout = setTimeout(function () { aborter.abort(); }, 12000);
             fetch(options.endpoint, {
                 method: 'POST', credentials: 'same-origin', keepalive: true,
-                signal: aborter.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item.payload)
+                signal: aborter.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(transport(item.payload))
             }).then(function (r) {
                 return r.json().then(function (body) { return { ok: r.ok, status: r.status, body: body }; });
             }).then(function (result) {
                 if (detached || generation !== sentGeneration || queue[0] !== item) { return; }
-                if (result.status === 409) {
+                if (result.status === 409 || result.status === 403) {
                     if (options.onConflict) { options.onConflict(); }
                     return;
                 }
@@ -150,7 +153,7 @@
         function beacon() {
             if (detached || !navigator.sendBeacon) { return; }
             queue.slice(0, 10).forEach(function (item) {
-                try { navigator.sendBeacon(options.endpoint, new Blob([JSON.stringify(item.payload)], { type: 'application/json' })); } catch (e) {}
+                try { navigator.sendBeacon(options.endpoint, new Blob([JSON.stringify(transport(item.payload))], { type: 'application/json' })); } catch (e) {}
             }); // persisted entries stay until a later acknowledged fetch
         }
         setInterval(drain, 3000);

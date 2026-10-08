@@ -187,6 +187,8 @@ Complément du lot 3b — seule la remise à zéro archive toutes les tentatives
 
 Décision de confidentialité du 8 octobre 2026 — l'élève reçoit uniquement « Accès indisponible. Contactez le formateur. » lorsqu'un contexte ou contrôle interdit l'accès. Les motifs, valeurs de diagnostic, pertes et détails de dérogation sont réservés à la supervision privée du formateur propriétaire. Les contrôles des lots 4/5/6 devront séparer payload public et diagnostic privé ; le tableau projeté n'affichera pas les causes précises. Les gestes normaux de préparation peuvent être guidés sans exposer le motif d'un refus.
 
+Complément du lot 4a — le formateur propriétaire bloque ou lève le blocage d'un élève, y compris avant connexion, avec motif privé obligatoire et audit atomique de l'identité/acteur/date. L'état manuel persiste indépendamment des incidents, fins, clôtures, relances et resets ; aucune action élève ne le lève. Décision serveur fraîche sous verrou avant finish/resume, y compris replay UID ; suspension réversible HTTP200 générique sans nouvelle URL Forms. Poll et observations continuent ; le masque prime sur les autres états et conserve l'iframe/saisie existante. CSRF protège connexion, heartbeat, événements et Beacon, ajouté au transport hors journal persistant ; pages et API sont no-store. Board à projection explicite sûre, diagnostics réservés aux vues privées. Futurs snapshots figent un contexte d'accès ciblé optionnel sans compléter les archives3b depuis le courant. Aucune dérogation ni règle automatique navigateur/suivi dans4a ; celles-ci sont réservées à4b/5/6. Spécification : `SPEC_EXECUTION_QUIZ_MANUAL_ACCESS.md`.
+
 - génération d’un PIN temporaire ;
 - écran projetable ;
 - état connecté/déconnecté ;
