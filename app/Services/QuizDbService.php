@@ -125,6 +125,15 @@ SQL);
         $this->ensureColumn('quiz_sessions', 'require_fullscreen', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_sessions', 'reload_is_incident', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_events', 'excused', 'INTEGER NOT NULL DEFAULT 0');
+        $this->ensureColumn('quiz_sessions', 'tracking_generation', 'TEXT');
+        foreach (['event_uid', 'absence_uid', 'source', 'related_event_uid', 'tracking_generation'] as $column) {
+            $this->ensureColumn('quiz_events', $column, 'TEXT');
+        }
+        $this->ensureColumn('quiz_events', 'duration_ms', 'INTEGER');
+        $this->ensureColumn('quiz_events', 'dropped_events', 'INTEGER');
+        $this->pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_events_uid ON quiz_events(attempt_id, event_uid) WHERE event_uid IS NOT NULL');
+        $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_quiz_events_absence ON quiz_events(attempt_id, absence_uid)');
+        $this->pdo->exec("UPDATE quiz_sessions SET tracking_generation = lower(hex(randomblob(16))) WHERE tracking_generation IS NULL OR tracking_generation = ''");
         $this->ensureColumn('quiz_students', 'email', 'TEXT');
         $this->ensureColumn('quiz_students', 'code_email_sent_at', 'TEXT');
         $this->ensureColumn('quiz_attempts', 'finished_at', 'TEXT');

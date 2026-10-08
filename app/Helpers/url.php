@@ -69,3 +69,26 @@ function assetBase(): string
     }
     return '/assets';
 }
+
+/** Millisecond observations and legacy whole-second events keep their precision. */
+function quizEventDuration(array $event): string
+{
+    if (($event['event_type'] ?? '') === 'away_start') { return '—'; }
+    if (isset($event['duration_ms'])) {
+        return ((int)$event['duration_ms'] >= 3600000 ? '≥ ' : '') . number_format((int)$event['duration_ms'] / 1000, 3, '.', '') . ' s';
+    }
+    return (int)($event['away_seconds'] ?? 0) . ' s';
+}
+
+function quizEventLabel(array $event, App\Services\I18nService $i18n): string
+{
+    $label = (string)$event['event_type'];
+    if ($label === 'away_start') { $label = $i18n->t('quiz.journal.start'); }
+    elseif (isset($event['absence_uid'])) { $label = $i18n->t('quiz.journal.return'); }
+    elseif ($label === 'tracking_diagnostic') { return $i18n->t('quiz.journal.diagnostic') . ' (' . (int)($event['dropped_events'] ?? 0) . ')'; }
+    if (!empty($event['source']) && in_array($event['source'], ['hidden', 'blur', 'fullscreen_exit'], true)) {
+        $label .= ' · ' . $i18n->t('quiz.journal.source.' . $event['source']);
+    }
+    if (!empty($event['absence_uid'])) { $label .= ' · #' . substr((string)$event['absence_uid'], 0, 8); }
+    return $label;
+}

@@ -479,14 +479,22 @@ class QuizAdminController
             ? $this->quiz->listRecentEvents((int)$session['id'])
             : $this->quiz->listEventsSince((int)$session['id'], $after);
 
-        $rows = array_map(static function (array $e): array {
+        $rows = array_map(function (array $e): array {
             return [
                 'id' => (int)$e['id'],
                 'student_id' => (int)($e['student_id'] ?? 0),
                 'first_name' => $e['first_name'],
                 'last_name' => $e['last_name'],
                 'event_type' => $e['event_type'],
+                'event_label' => quizEventLabel($e, $this->i18n),
                 'away_seconds' => (int)$e['away_seconds'],
+                'duration_ms' => $e['duration_ms'] !== null ? (int)$e['duration_ms'] : null,
+                'duration_label' => quizEventDuration($e),
+                'source' => $e['source'],
+                'absence_uid' => $e['absence_uid'],
+                'event_uid' => $e['event_uid'],
+                'related_event_uid' => $e['related_event_uid'],
+                'dropped_events' => $e['dropped_events'] !== null ? (int)$e['dropped_events'] : null,
                 'is_incident' => (int)$e['is_incident'] === 1,
                 'excused' => !empty($e['excused']),
                 'date' => formatParisTime($e['created_at']),

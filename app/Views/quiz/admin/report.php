@@ -106,8 +106,8 @@ $timeline = array_reverse($events); // chronological order
                     ?>
                     <tr class="<?php echo $isIncident ? ($isExcused ? 'quiz-row--excused' : 'quiz-row--alert') : ''; ?>">
                         <td><?php echo htmlspecialchars(formatParisTime($e['created_at']), ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td><?php echo htmlspecialchars($e['event_type'], ENT_QUOTES, 'UTF-8'); ?></td>
-                        <td><?php echo (int)$e['away_seconds']; ?>s</td>
+                        <td><?php echo htmlspecialchars(quizEventLabel($e, $i18n), ENT_QUOTES, 'UTF-8'); ?></td>
+                        <td><?php echo htmlspecialchars(quizEventDuration($e), ENT_QUOTES, 'UTF-8'); ?></td>
                         <td>
                             <?php if ($isIncident && $isExcused): ?>
                                 <?php echo htmlspecialchars($i18n->t('quiz.report.qual_excused'), ENT_QUOTES, 'UTF-8'); ?>
@@ -122,6 +122,7 @@ $timeline = array_reverse($events); // chronological order
             </tbody>
         </table>
     <?php endif; ?>
+    <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.journal.received_time'), ENT_QUOTES, 'UTF-8'); ?></p>
 </section>
 
 <section class="quiz-report-section quiz-report-decision">

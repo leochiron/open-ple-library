@@ -219,7 +219,8 @@ $sid = (int)$session['id'];
         <h2><?php echo htmlspecialchars($i18n->t('quiz.admin.feed_title'), ENT_QUOTES, 'UTF-8'); ?> <span class="quiz-live-dot" aria-hidden="true"></span></h2>
     </header>
     <div class="card-body">
-        <table class="quiz-table">
+        <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.journal.received_time'), ENT_QUOTES, 'UTF-8'); ?></p>
+                <table class="quiz-table">
             <thead>
                 <tr>
                     <th><?php echo htmlspecialchars($i18n->t('quiz.admin.col_student'), ENT_QUOTES, 'UTF-8'); ?></th>
@@ -235,8 +236,8 @@ $sid = (int)$session['id'];
                     <?php foreach ($recentEvents as $e): ?>
                         <tr class="<?php echo ((int)$e['is_incident'] === 1 && empty($e['excused'])) ? 'quiz-row--alert' : ''; ?>">
                             <td><?php echo htmlspecialchars($e['first_name'] . ' ' . $e['last_name'], ENT_QUOTES, 'UTF-8'); ?></td>
-                            <td><?php echo htmlspecialchars($e['event_type'], ENT_QUOTES, 'UTF-8'); ?><?php echo ((int)$e['is_incident'] === 1) ? ' ⚠️' : ''; ?></td>
-                            <td><?php echo (int)$e['away_seconds']; ?>s</td>
+                            <td><?php echo htmlspecialchars(quizEventLabel($e, $i18n), ENT_QUOTES, 'UTF-8'); ?><?php echo ((int)$e['is_incident'] === 1) ? ' ⚠️' : ''; ?></td>
+                            <td><?php echo htmlspecialchars(quizEventDuration($e), ENT_QUOTES, 'UTF-8'); ?></td>
                             <td><?php echo htmlspecialchars(formatParisTime($e['created_at']), ENT_QUOTES, 'UTF-8'); ?></td>
                         </tr>
                     <?php endforeach; ?>
@@ -514,8 +515,8 @@ $sid = (int)$session['id'];
                     var tr = document.createElement('tr');
                     if (e.is_incident && !e.excused) { tr.className = 'quiz-row--alert'; }
                     tr.innerHTML = '<td>' + esc(e.first_name + ' ' + e.last_name) + '</td>'
-                        + '<td>' + esc(e.event_type) + (e.is_incident ? ' ⚠️' : '') + '</td>'
-                        + '<td>' + e.away_seconds + 's</td>'
+                        + '<td>' + esc(e.event_label || e.event_type) + (e.is_incident ? ' ⚠️' : '') + '</td>'
+                        + '<td>' + esc(e.duration_label || (e.away_seconds + ' s')) + '</td>'
                         + '<td>' + esc(e.date) + '</td>';
                     tbody.insertBefore(tr, tbody.firstChild);
                 });

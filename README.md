@@ -470,7 +470,9 @@ php tests/QuizAdminAuthServiceTest.php
 php tests/QuizOwnershipIsolationTest.php
 php tests/QuizLiveSettingsTest.php
 php tests/QuizIncidentReclassificationTest.php
+php tests/QuizEventJournalTest.php
 node tests/QuizLiveSettingsJsTest.js
+node tests/QuizEventJournalJsTest.js
 php tests/RouteIntegrationTest.php
 php tests/WebServerRulesTest.php
 ```
@@ -479,6 +481,11 @@ The live-settings JavaScript test renders the real quiz templates with PHP and
 executes their scripts in a simulated browser. PHP must include `pdo_sqlite` for
 the live-settings PHP test; set `QUIZ_TEST_PHP` if the PHP executable is not on
 the PATH. These tests do not access deployment configuration or production data.
+
+The observation journal also covers subsecond exits, overlapping sources,
+bounded persistent retries, idempotent receipt and attempt/launch binding.
+See `SPEC_EXECUTION_QUIZ_JOURNAL.md` for migration, timestamp interpretation,
+publication manifest and the limits of reverting to pre-journal code.
 
 PHP's built-in server does not interpret `.htaccess`. `WebServerRulesTest.php`
 therefore verifies the presence and ordering of every sensitive Apache rule when
