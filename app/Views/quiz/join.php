@@ -25,6 +25,7 @@ declare(strict_types=1);
         <?php endif; ?>
 
         <form method="post" action="/quiz/join" class="quiz-join-form" autocomplete="off">
+            <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
             <div class="quiz-field">
                 <label for="quiz-pin"><?php echo htmlspecialchars($i18n->t('quiz.join.pin_label'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <input type="text" id="quiz-pin" name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="6"

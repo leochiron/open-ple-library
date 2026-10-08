@@ -152,6 +152,19 @@ CREATE TABLE IF NOT EXISTS quiz_session_audit (
     after_json TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_quiz_audit_session ON quiz_session_audit(session_id, id);
+
+CREATE TABLE IF NOT EXISTS quiz_student_access (
+    session_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    manual_blocked INTEGER NOT NULL DEFAULT 0 CHECK (manual_blocked IN (0, 1)),
+    reason TEXT NOT NULL,
+    actor_admin_id INTEGER NOT NULL,
+    actor_name TEXT NOT NULL,
+    changed_at TEXT NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    PRIMARY KEY(session_id, student_id)
+);
 SQL);
 
         // Migrations for databases created before these columns existed

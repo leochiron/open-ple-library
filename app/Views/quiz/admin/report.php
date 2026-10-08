@@ -92,6 +92,12 @@ $timeline = array_reverse($events); // chronological order
             </td>
         </tr>
     </table>
+    <h3><?php echo htmlspecialchars($i18n->t('quiz.access.title'), ENT_QUOTES, 'UTF-8'); ?></h3>
+    <?php if (isset($accessContext)): ?>
+        <p><?php echo htmlspecialchars($i18n->t($accessContext['manual_blocked'] ? 'quiz.access.blocked' : 'quiz.access.allowed'), ENT_QUOTES, 'UTF-8'); ?>
+            <?php if (!empty($accessContext['reason'])): ?> · <?php echo htmlspecialchars($accessContext['reason'] . ' · ' . $accessContext['actor_name'], ENT_QUOTES, 'UTF-8'); ?>
+                · <?php echo htmlspecialchars(formatParisTime($accessContext['changed_at']), ENT_QUOTES, 'UTF-8'); ?><?php endif; ?></p>
+    <?php else: ?><p><?php echo htmlspecialchars($i18n->t('quiz.access.not_recorded'), ENT_QUOTES, 'UTF-8'); ?></p><?php endif; ?>
 </section>
 
 <section class="quiz-report-section">

@@ -29,6 +29,8 @@
     var finished = !!cfg.finished; // student declared they are done: monitoring stops
     var completionPending = false; // wait for the server acknowledgement
     var detached = false;
+    var accessAllowed = cfg.state.access_allowed !== false;
+    var pollSequence = 0;
     function boundUrl(url) { return url + (url.indexOf('?') === -1 ? '?' : '&') + 'attempt_id=' + cfg.attemptId; }
 
     var els = {
@@ -52,12 +54,15 @@
         finishStatus: document.getElementById('quiz-finish-status'),
         resumeBtn: document.getElementById('quiz-resume-btn'),
         resumeStatus: document.getElementById('quiz-resume-status'),
-        trackingStatus: document.getElementById('quiz-tracking-status')
+        trackingStatus: document.getElementById('quiz-tracking-status'),
+        accessUnavailable: document.getElementById('quiz-access-unavailable')
     };
     var journal = window.QuizEventJournal({
         attemptId: cfg.attemptId, endpoint: boundUrl(cfg.endpoints.event),
+        getCsrfToken: function () { return cfg.csrfToken; },
         onAck: function (result, event) {
             updateIncidents(result.incident_count, result.status);
+            if (result.access_allowed === false) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
             var seconds = event.duration_ms === undefined ? 0 : event.duration_ms / 1000;
             if (result.is_incident) { showAwayWarning(cfg.i18n.incidentWarning.replace('{seconds}', String(seconds))); }
             else if (seconds >= 3) { showAwayWarning(cfg.i18n.awayWarning.replace('{seconds}', String(seconds))); }
@@ -69,7 +74,7 @@
         },
         onDetached: function () {
             detached = true;
-            [els.exam, els.lobby, els.closed, els.finished, els.fsGate, els.timeover, els.awayWarning].forEach(hide);
+            [els.exam, els.lobby, els.closed, els.finished, els.completion, els.accessUnavailable, els.fsGate, els.timeover, els.awayWarning].forEach(hide);
         },
         onConflict: poll
     });
@@ -82,6 +87,8 @@
     function applyState(state) {
         if (typeof state.attempt_id === 'number' && state.attempt_id !== cfg.attemptId) { journal.detach(); return; }
         if (detached) { return; }
+        if (typeof state.csrf_token === 'string') { cfg.csrfToken = state.csrf_token; }
+        if (typeof state.access_allowed === 'boolean') { accessAllowed = state.access_allowed; }
         if (state.tracking_generation) { journal.setGeneration(state.tracking_generation); }
         applyRules(state);
         if (typeof state.server_now === 'number') {
@@ -109,6 +116,15 @@
                 hide(els.timeover);
             }
         }
+
+        if (!accessAllowed) {
+            [els.lobby, els.exam, els.closed, els.finished, els.completion, els.fsGate, els.timeover, els.awayWarning].forEach(hide);
+            timeoverShown = false;
+            show(els.accessUnavailable);
+            if (els.finishBtn) { els.finishBtn.disabled = true; els.resumeBtn.disabled = true; }
+            return;
+        }
+        hide(els.accessUnavailable);
 
         if (finished && currentState !== 'closed') {
             // The student declared they are done: the form stays hidden,
@@ -141,6 +157,7 @@
             els.completion.hidden = finished || currentState !== 'running';
             els.finishBtn.disabled = completionPending || !els.submitConfirm.checked;
             els.resumeBtn.hidden = !finished || currentState !== 'running';
+            els.resumeBtn.disabled = completionPending;
         }
         updateFullscreenGate();
     }
@@ -204,13 +221,14 @@
 
     function poll() {
         if (detached) { return; }
+        var sequence = ++pollSequence;
         fetch(boundUrl(cfg.endpoints.state), { credentials: 'same-origin' })
             .then(function (r) {
                 if (r.status === 409 || r.status === 401 || r.status === 403) { journal.detach(); return null; }
                 return r.json();
             })
             .then(function (state) {
-                if (state && state.state) {
+                if (sequence === pollSequence && state && state.state) {
                     applyState(state);
                 }
             })
@@ -221,7 +239,7 @@
     var pollTimeout = null;
     function scheduleNextPoll() {
         clearTimeout(pollTimeout);
-        var delay = currentState === 'running' ? POLL_RUNNING_MS : POLL_LOBBY_MS;
+        var delay = currentState === 'running' && accessAllowed ? POLL_RUNNING_MS : POLL_LOBBY_MS;
         if (currentState === 'closed') {
             return;
         }
@@ -233,6 +251,7 @@
         fetch(boundUrl(cfg.endpoints.heartbeat), {
             method: 'POST',
             credentials: 'same-origin',
+            headers: { 'X-Quiz-CSRF': cfg.csrfToken },
             keepalive: true
         }).catch(function () { /* will retry on next tick */ });
     }
@@ -257,7 +276,7 @@
         els.timer.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
         els.timer.classList.toggle('quiz-banner__timer--low', remaining > 0 && remaining <= 120);
 
-        if (!finished && remaining === 0 && !timeoverShown) {
+        if (accessAllowed && !finished && remaining === 0 && !timeoverShown) {
             timeoverShown = true;
             show(els.timeover);
         } else if (remaining > 0 && timeoverShown) {
@@ -281,7 +300,7 @@
 
     var warningTimeout = null;
     function showAwayWarning(text) {
-        if (!els.awayWarning || detached) {
+        if (!els.awayWarning || detached || !accessAllowed) {
             return;
         }
         els.awayWarningText.textContent = text;
@@ -406,7 +425,7 @@
         if (!els.fsGate) {
             return;
         }
-        var needGate = !detached && requireFullscreen && currentState === 'running' && !finished && !isFullscreen();
+        var needGate = !detached && accessAllowed && requireFullscreen && currentState === 'running' && !finished && !isFullscreen();
         els.fsGate.hidden = !needGate;
     }
 
@@ -436,7 +455,7 @@
     // ------------------------------------------------------------------
 
     function saveCompletion(type, statusEl) {
-        if (completionPending || currentState !== 'running' || detached) { return; }
+        if (completionPending || currentState !== 'running' || detached || !accessAllowed) { return; }
         completionPending = true;
         els.finishBtn.disabled = true;
         els.resumeBtn.disabled = true;
@@ -447,16 +466,24 @@
         fetch(boundUrl(cfg.endpoints.event), {
             method: 'POST', credentials: 'same-origin', signal: aborter.signal,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(completionPayload)
+            body: JSON.stringify(Object.assign({}, completionPayload, { _csrf: cfg.csrfToken }))
         }).then(function (r) {
-            if (r.status === 409) { poll(); }
+            if (r.status === 409 || r.status === 403) { poll(); }
             if (!r.ok) { throw new Error('completion_not_saved'); }
             return r.json();
         }).then(function (result) {
+            if (result.access_allowed === false) {
+                ++pollSequence;
+                completionPending = false;
+                statusEl.textContent = '';
+                applyState(Object.assign({ state: currentState }, result));
+                return;
+            }
             if (result.attempt_id !== cfg.attemptId || result.event_uid !== completionPayload.event_uid || typeof result.finished !== 'boolean' || result.finished !== (type === 'finish')) {
                 throw new Error('completion_not_acknowledged');
             }
             finished = result.finished;
+            ++pollSequence;
             completionPending = false;
             journal.discard();
             statusEl.textContent = '';
@@ -468,16 +495,16 @@
             applyState({ state: currentState });
         }).catch(function () {
             completionPending = false;
-            statusEl.textContent = cfg.i18n.finishError;
+            statusEl.textContent = accessAllowed ? cfg.i18n.finishError : '';
         }).finally(function () {
             clearTimeout(timeout);
-            els.finishBtn.disabled = completionPending || !els.submitConfirm.checked;
-            els.resumeBtn.disabled = completionPending;
+            els.finishBtn.disabled = !accessAllowed || completionPending || !els.submitConfirm.checked;
+            els.resumeBtn.disabled = !accessAllowed || completionPending;
         });
     }
     if (els.finishBtn) {
         els.submitConfirm.addEventListener('change', function () {
-            els.finishBtn.disabled = completionPending || !els.submitConfirm.checked;
+            els.finishBtn.disabled = !accessAllowed || completionPending || !els.submitConfirm.checked;
         });
         els.finishBtn.addEventListener('click', function () {
             if (finished || !els.submitConfirm.checked || currentState !== 'running') { return; }

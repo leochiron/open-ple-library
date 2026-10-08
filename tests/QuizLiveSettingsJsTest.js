@@ -84,6 +84,7 @@ function harness(html, initial, storage = new Map()) {
     const timers = new Map();
     const events = [];
     const requests = [];
+    const requestOptions = [];
     let nextId = 0;
     let now = Date.now();
     let monotone = 0;
@@ -113,6 +114,7 @@ function harness(html, initial, storage = new Map()) {
         clearTimeout: id => timers.delete(id), clearInterval: id => timers.delete(id),
         fetch: (url, options = {}) => {
             requests.push(url);
+            requestOptions.push({ url, options });
             if (url.includes('/event') && options.method === 'POST') {
                 const event = JSON.parse(options.body);
                 events.push(event);
@@ -123,12 +125,12 @@ function harness(html, initial, storage = new Map()) {
             const response = url.includes('/events') ? eventFeed
                 : url.includes('/heartbeat') ? { ok: true } : state;
             if (url.includes('/events') && eventFeedReply) { return eventFeedReply; }
-            if (url.includes('/attempts') && stateReply) { return stateReply; }
+            if ((url.includes('/attempts') || url.includes('/api/state') || url.includes('/api/board')) && !url.includes('/events') && stateReply) { return stateReply; }
             return Promise.resolve({ status: stateStatus, ok: stateStatus === 200, json: async () => response });
         },
     });
     return {
-        context, document, window, elements, rows, events, requests, storage,
+        context, document, window, elements, rows, events, requests, requestOptions, storage,
         setEventResponse: value => { eventResponse = value; },
         setEventFeed: value => { eventFeed = value; },
         setEventFeedReply: value => { eventFeedReply = value; },
@@ -158,6 +160,7 @@ function inlineScripts(html) {
 function state(overrides = {}) {
     return {
         attempt_id: 1, tracking_generation: 'a'.repeat(32),
+        access_allowed: true, csrf_token: 'c'.repeat(48),
         state: 'running', title: 'Updated quiz', server_now: Math.floor(Date.now() / 1000), remaining_seconds: 1200,
         duration_minutes: 20, max_incidents: 3, min_away_seconds: 5, require_fullscreen: true, reload_is_incident: true,
         incident_count: 2, attempt_status: 'suspect', finished: false,

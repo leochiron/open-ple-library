@@ -47,6 +47,10 @@ $overQuota = (int)$attempt['incident_count'] >= $maxIncidents;
             <a class="btn ghost" href="/quiz-admin/session?id=<?php echo (int)$session['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.back_session'), ENT_QUOTES, 'UTF-8'); ?></a>
             <a class="btn ghost" href="/quiz-admin/history?id=<?php echo (int)$session['id']; ?>&amp;attempt_id=<?php echo (int)$attempt['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.history.title'), ENT_QUOTES, 'UTF-8'); ?></a>
         </div>
+        <?php if (isset($accessContext)): ?>
+            <h2><?php echo htmlspecialchars($i18n->t('quiz.access.title'), ENT_QUOTES, 'UTF-8'); ?> · <?php echo htmlspecialchars($i18n->t($accessContext['manual_blocked'] ? 'quiz.access.blocked' : 'quiz.access.allowed'), ENT_QUOTES, 'UTF-8'); ?></h2>
+            <?php $accessStudentId = (int)$attempt['student_id']; include __DIR__ . '/access-controls.php'; ?>
+        <?php endif; ?>
     </div>
 </section>
 

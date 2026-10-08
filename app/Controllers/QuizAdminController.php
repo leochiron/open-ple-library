@@ -33,6 +33,7 @@ class QuizAdminController
 
     public function handle(string $subPath): void
     {
+        header('Cache-Control: no-store');
         $subPath = '/' . trim($subPath, '/');
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -121,6 +122,8 @@ class QuizAdminController
                 $this->excuseAttempt();
             } elseif ($subPath === '/session/reset' && $method === 'POST') {
                 $this->resetSession();
+            } elseif (in_array($subPath, ['/access/block', '/access/lift'], true) && $method === 'POST') {
+                $this->changeManualAccess($subPath === '/access/block');
             } elseif ($subPath === '/report' && $method === 'GET') {
                 $this->integrityReport();
             } elseif ($subPath === '/board' && $method === 'GET') {
@@ -145,6 +148,10 @@ class QuizAdminController
                 $this->apiAttempts();
             } elseif ($subPath === '/api/events' && $method === 'GET') {
                 $this->apiEvents();
+            } elseif ($subPath === '/api/board' && $method === 'GET') {
+                $this->apiBoard();
+            } elseif ($subPath === '/api/board/events' && $method === 'GET') {
+                $this->apiEvents(true);
             } else {
                 http_response_code(404);
                 echo 'Not found';
@@ -223,7 +230,12 @@ class QuizAdminController
     private function sessionDetail(): void
     {
         $session = $this->requireSessionFromQuery();
+        $studentAccess = [];
+        foreach ($this->quiz->listStudents((int)$session['id']) as $student) {
+            $studentAccess[(int)$student['id']] = $this->quiz->getStudentAccess((int)$session['id'], (int)$student['id']);
+        }
         render('quiz/admin/session', [
+            'studentAccess' => $studentAccess,
             'session' => $session,
             'students' => $this->quiz->listStudents((int)$session['id']),
             'attempts' => $this->quiz->listAttempts((int)$session['id']),
@@ -312,6 +324,7 @@ class QuizAdminController
             return;
         }
         render('quiz/admin/attempt', [
+            'accessContext' => $this->quiz->getStudentAccess((int)$session['id'], (int)$attempt['student_id']),
             'session' => $session,
             'attempt' => $attempt,
             'events' => $this->quiz->listEventsForAttempt($id),
@@ -436,6 +449,7 @@ class QuizAdminController
         $session = $archive['snapshot']['rules'];
         $attempt = $archive['snapshot']['attempt'];
         $events = array_reverse($archive['snapshot']['events']);
+        $accessContext = $archive['snapshot']['access_context'] ?? null;
         $i18n = $this->i18n;
         include __DIR__ . '/../Views/quiz/admin/report.php';
     }
@@ -498,6 +512,7 @@ class QuizAdminController
             return;
         }
         $events = $this->quiz->listEventsForAttempt($id);
+        $accessContext = $this->quiz->getStudentAccess((int)$session['id'], (int)$attempt['student_id']);
         $i18n = $this->i18n;
         // Standalone printable page, outside the site layout
         include __DIR__ . '/../Views/quiz/admin/report.php';
@@ -508,13 +523,15 @@ class QuizAdminController
     {
         $session = $this->requireSessionFromQuery();
         $students = $this->quiz->listStudents((int)$session['id']);
+        $students = array_map(fn(array $student): array => ['id' => (int)$student['id'], 'first_name' => $student['first_name'], 'last_name' => $student['last_name'],
+            'access_allowed' => $this->quiz->studentAccessAllowed((int)$session['id'], (int)$student['id'])], $students);
         $i18n = $this->i18n;
         // Standalone fullscreen page, outside the site layout
         include __DIR__ . '/../Views/quiz/admin/board.php';
     }
 
     /** Live feed: events newer than ?after=<id>, oldest first. */
-    private function apiEvents(): void
+    private function apiEvents(bool $projected = false): void
     {
         $session = $this->requireSessionFromQuery();
         $after = (int)($_GET['after'] ?? 0);
@@ -525,8 +542,8 @@ class QuizAdminController
         $reset = ($requestedVersion !== '' && !hash_equals($version, $requestedVersion))
             || ($requestedRevision !== null && (int)$requestedRevision !== $revision);
         $events = $reset
-            ? $this->quiz->listRecentEvents((int)$session['id'])
-            : $this->quiz->listEventsSince((int)$session['id'], $after);
+            ? $this->quiz->listRecentEvents((int)$session['id'], 100, $projected)
+            : $this->quiz->listEventsSince((int)$session['id'], $after, 100, $projected);
 
         $rows = array_map(function (array $e): array {
             return [
@@ -550,6 +567,11 @@ class QuizAdminController
             ];
         }, $events);
 
+        if ($projected) {
+            $rows = array_values(array_filter($rows, static fn(array $row): bool => $row['event_type'] !== 'tracking_diagnostic'));
+            $rows = array_map(static fn(array $row): array => array_intersect_key($row, array_flip(['id', 'student_id', 'first_name', 'last_name', 'event_type', 'away_seconds', 'duration_ms', 'duration_label', 'is_incident', 'excused', 'date'])), $rows);
+        }
+
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode(['events' => $rows, 'rules_version' => $version, 'history_revision' => $revision, 'reset' => $reset]);
     }
@@ -561,7 +583,7 @@ class QuizAdminController
         $state = $this->quiz->buildStatePayload($session);
         $now = $state['server_now'];
 
-        $rows = array_map(static function (array $a) use ($now): array {
+        $rows = array_map(function (array $a) use ($now, $session): array {
             $lastHb = $a['last_heartbeat_at'] ? strtotime($a['last_heartbeat_at'] . ' UTC') : null;
             return [
                 'attempt_id' => (int)$a['id'],
@@ -575,6 +597,7 @@ class QuizAdminController
                 'finished' => !empty($a['finished_at']),
                 'connected' => $lastHb !== null && ($now - $lastHb) < 30,
                 'last_seen_seconds' => $lastHb !== null ? max(0, $now - $lastHb) : null,
+                'access_context' => $this->quiz->getStudentAccess((int)$session['id'], (int)$a['student_id']),
             ];
         }, $attempts);
 
@@ -583,6 +606,52 @@ class QuizAdminController
             'pin' => $session['access_pin'] ?? null,
             'attempts' => $rows,
         ]));
+    }
+
+    private function changeManualAccess(bool $blocked): void
+    {
+        foreach (['id', 'student_id'] as $field) {
+            $value = $_POST[$field] ?? null;
+            if ((!is_int($value) && !(is_string($value) && ctype_digit($value))) || (int)$value < 1) {
+                http_response_code(400);
+                echo htmlspecialchars($this->i18n->t('quiz.access.invalid'), ENT_QUOTES, 'UTF-8');
+                return;
+            }
+        }
+        $id = (int)($_POST['id'] ?? 0);
+        $studentId = (int)($_POST['student_id'] ?? 0);
+        try {
+            if (!is_string($_POST['reason'] ?? null)) { throw new RuntimeException('invalid_access_reason'); }
+            $this->quiz->setManualAccess($id, $studentId, $blocked, $_POST['reason']);
+            $flash = $this->i18n->t('quiz.access.saved');
+        } catch (RuntimeException $e) {
+            if (!in_array($e->getMessage(), ['invalid_access_reason', 'access_unchanged'], true)) { throw $e; }
+            $flash = $this->i18n->t('quiz.access.invalid');
+        }
+        header('Location: /quiz-admin/session?id=' . $id . '&flash=' . urlencode($flash));
+        exit;
+    }
+
+    /** Deliberate allowlist for the projected board; never serialize teacher policy details. */
+    private function apiBoard(): void
+    {
+        $session = $this->requireSessionFromQuery();
+        $state = $this->quiz->buildStatePayload($session);
+        $state = array_intersect_key($state, array_flip(['state', 'title', 'duration_minutes', 'max_incidents', 'min_away_seconds', 'require_fullscreen', 'reload_is_incident', 'rules_version', 'server_now', 'remaining_seconds', 'history_revision']));
+        $attemptMap = [];
+        foreach ($this->quiz->listAttempts((int)$session['id']) as $attempt) { $attemptMap[(int)$attempt['student_id']] = $attempt; }
+        $rows = [];
+        foreach ($this->quiz->listStudents((int)$session['id']) as $student) {
+            $attempt = $attemptMap[(int)$student['id']] ?? null;
+            $last = !empty($attempt['last_heartbeat_at']) ? strtotime($attempt['last_heartbeat_at'] . ' UTC') : null;
+            $rows[] = ['student_id' => (int)$student['id'], 'attempt_id' => $attempt !== null ? (int)$attempt['id'] : null,
+                'first_name' => $student['first_name'], 'last_name' => $student['last_name'],
+                'incident_count' => (int)($attempt['incident_count'] ?? 0), 'status' => $attempt['status'] ?? 'waiting',
+                'finished' => !empty($attempt['finished_at']), 'connected' => $last !== null && $state['server_now'] - $last < 30,
+                'access_allowed' => $this->quiz->studentAccessAllowed((int)$session['id'], (int)$student['id'])];
+        }
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(array_merge($state, ['pin' => $session['access_pin'] ?? null, 'attempts' => $rows]));
     }
 
     private function users(): void

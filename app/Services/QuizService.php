@@ -571,7 +571,7 @@ class QuizService
     }
 
     /** New events for the live feed: everything after $afterId, oldest first. */
-    public function listEventsSince(int $sessionId, int $afterId, int $limit = 100): array
+    public function listEventsSince(int $sessionId, int $afterId, int $limit = 100, bool $projected = false): array
     {
         $this->requireSession($sessionId);
         $stmt = $this->db->prepare(
@@ -579,16 +579,15 @@ class QuizService
              FROM quiz_events e
              JOIN quiz_attempts a ON a.id = e.attempt_id
              JOIN quiz_students st ON st.id = a.student_id
-             WHERE a.session_id = :sid AND e.id > :after
-             ORDER BY e.id ASC
-             LIMIT ' . max(1, $limit)
+             WHERE a.session_id = :sid AND e.id > :after ' . ($projected ? $this->projectedEventFilter() : '') . '
+             ORDER BY e.id ASC LIMIT ' . max(1, $limit)
         );
         $stmt->execute(['sid' => $sessionId, 'after' => $afterId]);
         return $stmt->fetchAll();
     }
 
     /** Latest bounded feed snapshot, oldest first for the same client renderer. */
-    public function listRecentEvents(int $sessionId, int $limit = 100): array
+    public function listRecentEvents(int $sessionId, int $limit = 100, bool $projected = false): array
     {
         $this->requireSession($sessionId);
         $stmt = $this->db->prepare(
@@ -596,10 +595,15 @@ class QuizService
              FROM quiz_events e
              JOIN quiz_attempts a ON a.id = e.attempt_id
              JOIN quiz_students st ON st.id = a.student_id
-             WHERE a.session_id = :sid ORDER BY e.id DESC LIMIT ' . max(1, min($limit, 100))
+             WHERE a.session_id = :sid ' . ($projected ? $this->projectedEventFilter() : '') . ' ORDER BY e.id DESC LIMIT ' . max(1, min($limit, 100))
         );
         $stmt->execute(['sid' => $sessionId]);
         return array_reverse($stmt->fetchAll());
+    }
+
+    private function projectedEventFilter(): string
+    {
+        return " AND e.event_type IN ('hidden', 'blur', 'fullscreen_exit', 'leave', 'reload', 'devtools', 'copy', 'paste', 'print') ";
     }
 
     /**
@@ -784,6 +788,59 @@ class QuizService
         $stmt->execute(['now' => $this->now(), 'id' => $attemptId]);
     }
 
+    /** Teacher-only policy details. The independent row survives roster deletion. */
+    public function getStudentAccess(int $sessionId, int $studentId): array
+    {
+        $this->currentAdminId();
+        $this->requireSession($sessionId);
+        $stmt = $this->db->prepare('SELECT first_name, last_name FROM quiz_students WHERE id = :student AND session_id = :sid');
+        $stmt->execute(['student' => $studentId, 'sid' => $sessionId]);
+        $student = $stmt->fetch();
+        if ($student === false) { throw new RuntimeException('resource_not_found'); }
+        return $this->accessContext($sessionId, $studentId, $student);
+    }
+
+    public function setManualAccess(int $sessionId, int $studentId, bool $blocked, string $reason): void
+    {
+        $this->currentAdminId();
+        $reason = trim((string)preg_replace('/\s+/u', ' ', $reason));
+        if ($reason === '' || mb_strlen($reason) > 1000 || preg_match('/[\x00-\x1f\x7f]/u', $reason)) { throw new RuntimeException('invalid_access_reason'); }
+        $this->db->beginTransaction();
+        try {
+            $this->lockTeacherSession($sessionId);
+            $before = $this->getStudentAccess($sessionId, $studentId);
+            if ($before['manual_blocked'] === $blocked) { throw new RuntimeException('access_unchanged'); }
+            $actor = $this->auditActor();
+            $stmt = $this->db->prepare('INSERT INTO quiz_student_access(session_id, student_id, manual_blocked, reason, actor_admin_id, actor_name, changed_at, first_name, last_name) VALUES(:sid, :student, :blocked, :reason, :actor, :name, :now, :first, :last) ON CONFLICT(session_id, student_id) DO UPDATE SET manual_blocked = excluded.manual_blocked, reason = excluded.reason, actor_admin_id = excluded.actor_admin_id, actor_name = excluded.actor_name, changed_at = excluded.changed_at, first_name = excluded.first_name, last_name = excluded.last_name');
+            $stmt->execute(['sid' => $sessionId, 'student' => $studentId, 'blocked' => $blocked ? 1 : 0, 'reason' => $reason,
+                'actor' => $actor['id'], 'name' => $actor['name'], 'now' => $this->now(), 'first' => $before['first_name'], 'last' => $before['last_name']]);
+            $this->appendAudit($sessionId, $blocked ? 'access_blocked' : 'access_lifted', $before, $this->getStudentAccess($sessionId, $studentId));
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $e;
+        }
+    }
+
+    /** Public decision exposes no cause, policy row, actor or technical detail. */
+    public function studentAccessAllowed(int $sessionId, int $studentId): bool
+    {
+        $stmt = $this->db->prepare('SELECT COALESCE(ac.manual_blocked, 0) FROM quiz_students st LEFT JOIN quiz_student_access ac ON ac.session_id = st.session_id AND ac.student_id = st.id WHERE st.session_id = :sid AND st.id = :student');
+        $stmt->execute(['sid' => $sessionId, 'student' => $studentId]);
+        $value = $stmt->fetchColumn();
+        return $value !== false && (int)$value === 0;
+    }
+
+    private function accessContext(int $sessionId, int $studentId, array $student): array
+    {
+        $stmt = $this->db->prepare('SELECT manual_blocked, reason, actor_admin_id, actor_name, changed_at FROM quiz_student_access WHERE session_id = :sid AND student_id = :student');
+        $stmt->execute(['sid' => $sessionId, 'student' => $studentId]);
+        $row = $stmt->fetch();
+        return array_merge(['student_id' => $studentId, 'first_name' => $student['first_name'], 'last_name' => $student['last_name'],
+            'manual_blocked' => false, 'reason' => null, 'actor_admin_id' => null, 'actor_name' => null, 'changed_at' => null],
+            $row !== false ? array_merge($row, ['manual_blocked' => (int)$row['manual_blocked'] === 1]) : []);
+    }
+
     /**
      * Records a monitoring event. The incident decision is made server-side:
      * an away period >= min_away_seconds on an away-type event counts as an incident.
@@ -802,7 +859,8 @@ class QuizService
         try {
             // The first write takes the SQLite lock before reading current rules.
             // A stale API context cannot restore an old qualification or count.
-            $inserted = $this->insertEvent((int)$attempt['id'], $type, $awaySeconds, false, $metadata);
+            $lock = $this->db->prepare('UPDATE quiz_attempts SET incident_count = incident_count WHERE id = :id');
+            $lock->execute(['id' => (int)$attempt['id']]);
             $session = $this->requireSession((int)$session['id']);
             $currentAttempt = $this->getAttempt((int)$attempt['id']);
             if ($currentAttempt === null || (int)$currentAttempt['session_id'] !== (int)$session['id']) {
@@ -811,6 +869,15 @@ class QuizService
             if ($metadata['event_uid'] !== null && !hash_equals((string)$session['tracking_generation'], (string)$metadata['tracking_generation'])) {
                 throw new RuntimeException('stale_generation');
             }
+            if (in_array($type, ['finish', 'resume'], true)) {
+                if (!$this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id'])) {
+                    $state = $this->buildStatePayload($session, $currentAttempt);
+                    $this->db->commit();
+                    return $state; // reversible suspension, no UID acknowledgement or completion mutation
+                }
+                if ($session['state'] !== 'running') { throw new RuntimeException('session_not_running'); }
+            }
+            $inserted = $this->insertEvent((int)$attempt['id'], $type, $awaySeconds, false, $metadata);
             if (!$inserted) {
                 $existing = $this->db->prepare('SELECT * FROM quiz_events WHERE attempt_id = :aid AND event_uid = :uid');
                 $existing->execute(['aid' => (int)$attempt['id'], 'uid' => $metadata['event_uid']]);
@@ -821,11 +888,13 @@ class QuizService
                 foreach (['absence_uid', 'source', 'related_event_uid', 'duration_ms', 'dropped_events', 'tracking_generation'] as $key) {
                     if ((string)($event[$key] ?? '') !== (string)($metadata[$key] ?? '')) { throw new RuntimeException('event_uid_conflict'); }
                 }
+                $accessAllowed = $this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id']);
                 $this->db->commit();
                 return [
                     'incident_count' => (int)$currentAttempt['incident_count'], 'status' => $currentAttempt['status'],
                     'is_incident' => (int)$event['is_incident'] === 1, 'finished' => !empty($currentAttempt['finished_at']),
                     'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => true,
+                    'access_allowed' => $accessAllowed,
                 ];
             }
             $eventId = (int)$this->db->lastInsertId();
@@ -878,8 +947,10 @@ class QuizService
 
             $result = $this->recomputeAttemptStatus((int)$attempt['id'], (int)$session['id']);
             $currentAttempt = $this->getAttempt((int)$attempt['id']);
+            $accessAllowed = $this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id']);
             $this->db->commit();
-            return array_merge($result, ['is_incident' => $isIncident, 'finished' => !empty($currentAttempt['finished_at']), 'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => false]);
+            return array_merge($result, ['is_incident' => $isIncident, 'finished' => !empty($currentAttempt['finished_at']), 'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => false,
+                'access_allowed' => $accessAllowed]);
         } catch (Throwable $exception) {
             if ($this->db->inTransaction()) { $this->db->rollBack(); }
             throw $exception;
@@ -969,6 +1040,11 @@ class QuizService
     /** Current rules and clock shared by student and teacher polling endpoints. */
     public function buildStatePayload(array $session, ?array $attempt = null): array
     {
+        if ($attempt !== null) {
+            $session = $this->requireSession((int)$session['id']);
+            $attempt = $this->getAttempt((int)$attempt['id']);
+            if ($attempt === null || (int)$attempt['session_id'] !== (int)$session['id']) { throw new RuntimeException('attempt_mismatch'); }
+        }
         $now = time();
         $payload = [
             'state' => $session['state'],
@@ -995,8 +1071,9 @@ class QuizService
             $payload['incident_count'] = (int)$attempt['incident_count'];
             $payload['attempt_status'] = $attempt['status'];
             $payload['finished'] = !empty($attempt['finished_at']);
+            $payload['access_allowed'] = $this->studentAccessAllowed((int)$session['id'], (int)$attempt['student_id']);
             // The form URL is only delivered once the quiz is actually running.
-            if ($session['state'] === 'running') {
+            if ($payload['access_allowed'] && $session['state'] === 'running') {
                 $payload['form_url'] = $this->buildEmbeddedFormUrl($session, (string)$attempt['public_token']);
             }
         }
@@ -1046,7 +1123,11 @@ class QuizService
             $this->csvHeader($out);
             $stmt = $this->db->prepare('SELECT a.*, st.first_name, st.last_name, st.code, st.email FROM quiz_attempts a JOIN quiz_students st ON st.id = a.student_id WHERE a.session_id = :sid ORDER BY a.id');
             $stmt->execute(['sid' => $sessionId]);
-            while ($attempt = $stmt->fetch()) { $this->csvRow($out, $this->csvAttemptRow($attempt), ['courant']); }
+            while ($attempt = $stmt->fetch()) {
+                $metadata = array_pad(['courant'], 9, '');
+                $metadata[] = json_encode($this->getStudentAccess($sessionId, (int)$attempt['student_id']), JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+                $this->csvRow($out, $this->csvAttemptRow($attempt), $metadata);
+            }
             $stmt->closeCursor();
             $stmt = $this->db->prepare('SELECT e.*, st.first_name, st.last_name FROM quiz_events e JOIN quiz_attempts a ON a.id = e.attempt_id JOIN quiz_students st ON st.id = a.student_id WHERE a.session_id = :sid ORDER BY e.id');
             $stmt->execute(['sid' => $sessionId]);
@@ -1094,12 +1175,12 @@ class QuizService
 
     private function csvHeader($out): void
     {
-        fputcsv($out, ['type', 'nom', 'prenom', 'code', 'token', 'email', 'fin_declaree_a', 'reponses_google_forms', 'statut', 'incidents', 'rejoint_a', 'dernier_heartbeat', 'evenement', 'duree_absence_s', 'reception_serveur', 'source', 'duree_absence_ms', 'precision', 'episode', 'event_uid', 'depart_uid', 'traces_perdues', 'generation', 'section', 'archive_id', 'nonce_au_reset', 'copie_avant_reset_a', 'acteur_id', 'acteur', 'format_version', 'audit_avant', 'audit_apres'], ';', '"', '');
+        fputcsv($out, ['type', 'nom', 'prenom', 'code', 'token', 'email', 'fin_declaree_a', 'reponses_google_forms', 'statut', 'incidents', 'rejoint_a', 'dernier_heartbeat', 'evenement', 'duree_absence_s', 'reception_serveur', 'source', 'duree_absence_ms', 'precision', 'episode', 'event_uid', 'depart_uid', 'traces_perdues', 'generation', 'section', 'archive_id', 'nonce_au_reset', 'copie_avant_reset_a', 'acteur_id', 'acteur', 'format_version', 'audit_avant', 'audit_apres', 'contexte_acces_prive'], ';', '"', '');
     }
 
     private function csvRow($out, array $row, array $metadata): void
     {
-        if (fputcsv($out, array_merge($row, array_pad($metadata, 9, '')), ';', '"', '') === false) { throw new RuntimeException('export_write_failed'); }
+        if (fputcsv($out, array_merge($row, array_pad($metadata, 10, '')), ';', '"', '') === false) { throw new RuntimeException('export_write_failed'); }
     }
 
     private function csvAttemptRow(array $a): array
@@ -1116,6 +1197,8 @@ class QuizService
     {
         $snapshot = $archive['snapshot']; $attempt = $snapshot['attempt'];
         $metadata = ['archive', $archive['id'], $archive['generation'], $this->toParisTime($archive['archived_at']), $archive['actor_admin_id'], $archive['actor_name'], $archive['format_version']];
+        $metadata = array_pad($metadata, 9, '');
+        $metadata[] = isset($snapshot['access_context']) ? json_encode($snapshot['access_context'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) : 'non conservé';
         $row = $this->csvAttemptRow($attempt); $row[0] = 'archive_tentative'; $this->csvRow($out, $row, $metadata);
         foreach ($snapshot['events'] as $event) {
             $row = $this->csvEventRow($event + ['first_name' => $attempt['first_name'], 'last_name' => $attempt['last_name']]);
@@ -1243,6 +1326,7 @@ class QuizService
             $snapshot = ['format_version' => self::ARCHIVE_VERSION, 'session_id' => $sid,
                 'reset_generation' => (string)($session['tracking_generation'] ?? ''), 'rules' => $this->ruleFields($session),
                 'attempt' => $frozenAttempt, 'events' => $events,
+                'access_context' => $this->getStudentAccess($sid, (int)$attempt['student_id']),
                 'event_generations' => array_values(array_unique(array_filter(array_column($events, 'tracking_generation'), static fn($value): bool => $value !== null && $value !== '')))];
             $json = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
             $bytes = strlen($json); $totalBytes += $bytes;

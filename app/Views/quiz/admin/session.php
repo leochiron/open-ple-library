@@ -249,6 +249,19 @@ $sid = (int)$session['id'];
 </section>
 
 <section class="card">
+    <header class="card-header"><h2><?php echo htmlspecialchars($i18n->t('quiz.access.title'), ENT_QUOTES, 'UTF-8'); ?></h2></header>
+    <div class="card-body">
+        <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.access.hint'), ENT_QUOTES, 'UTF-8'); ?></p>
+        <?php foreach ($students as $student): ?>
+            <?php $accessContext = $studentAccess[(int)$student['id']] ?? ['manual_blocked' => false, 'reason' => null]; $accessStudentId = (int)$student['id']; ?>
+            <details><summary><?php echo htmlspecialchars(trim($student['first_name'] . ' ' . $student['last_name']), ENT_QUOTES, 'UTF-8'); ?> · <?php echo htmlspecialchars($i18n->t($accessContext['manual_blocked'] ? 'quiz.access.blocked' : 'quiz.access.allowed'), ENT_QUOTES, 'UTF-8'); ?></summary>
+                <?php include __DIR__ . '/access-controls.php'; ?>
+            </details>
+        <?php endforeach; ?>
+    </div>
+</section>
+
+<section class="card">
     <header class="card-header">
         <h2><?php echo htmlspecialchars($i18n->t('quiz.admin.roster_title'), ENT_QUOTES, 'UTF-8'); ?> (<?php echo count($students); ?>)</h2>
     </header>
@@ -398,6 +411,11 @@ $sid = (int)$session['id'];
 
     var finishedBadge = <?php echo json_encode('✅ ' . $i18n->t('quiz.admin.finished_badge')); ?>;
     var viewDetailLabel = <?php echo json_encode($i18n->t('quiz.admin.view_detail')); ?>;
+    var blockedLabel = <?php echo json_encode($i18n->t('quiz.access.blocked')); ?>;
+    function accessLabel(a) {
+        var context = a.access_context;
+        return context && context.manual_blocked ? '<br><strong>' + esc(blockedLabel) + '</strong> · ' + esc(context.reason) : '';
+    }
 
     // Mirrors each attempt into the static "events by student" table so the
     // counters, statuses and badges stay live without reloading the page.
@@ -419,7 +437,7 @@ $sid = (int)$session['id'];
         var status = row.querySelector('[data-role="status"]');
         if (status) {
             status.classList.remove('quiz-hint');
-            status.innerHTML = '<span class="quiz-status--' + esc(a.status) + '">' + esc(a.status) + '</span>';
+            status.innerHTML = '<span class="quiz-status--' + esc(a.status) + '">' + esc(a.status) + '</span>' + accessLabel(a);
         }
         var action = row.querySelector('[data-role="action"]');
         if (action && !action.firstChild) {
@@ -462,7 +480,7 @@ $sid = (int)$session['id'];
                         + '<td>' + esc(a.first_name + ' ' + a.last_name) + fin + '</td>'
                         + '<td>' + dot + seen + '</td>'
                         + '<td>' + a.incident_count + '</td>'
-                        + '<td><span class="quiz-status--' + esc(a.status) + '">' + esc(a.status) + '</span></td>'
+                        + '<td><span class="quiz-status--' + esc(a.status) + '">' + esc(a.status) + '</span>' + accessLabel(a) + '</td>'
                         + '</tr>';
                     updateStudentRow(a, maxIncidents);
                 });

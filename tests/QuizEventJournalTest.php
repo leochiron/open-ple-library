@@ -169,11 +169,12 @@ try {
     $controller = new QuizController($quiz, $i18n, []);
     $api = new ReflectionMethod($controller, 'apiEvent'); $api->setAccessible(true);
     $_SESSION['quiz_attempt_id'] = $aid; $_GET = ['attempt_id' => $aid];
+    $_SESSION['quiz_student_csrf'] = str_repeat('c', 48);
     foreach ([['type' => ['malformed']], array_merge(['type' => 'copy'], $copy, ['attempt_id' => $bid])] as $data) {
-        $_POST = $data; ob_start(); $api->invoke($controller); $body = json_decode((string)ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
+        $_POST = $data + ['_csrf' => $_SESSION['quiz_student_csrf']]; ob_start(); $api->invoke($controller); $body = json_decode((string)ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
         assertSameValue(['error' => 'access_unavailable'], $body, 'Public invalid-payload and binding errors disclose no cause');
     }
-    $_POST = array_merge(['type' => 'copy'], $metadata($aid, 'shortcut'));
+    $_POST = array_merge(['type' => 'copy', '_csrf' => $_SESSION['quiz_student_csrf']], $metadata($aid, 'shortcut'));
     $db->exec("CREATE TRIGGER fail_api BEFORE INSERT ON quiz_events BEGIN SELECT RAISE(ABORT, 'private_database_reason'); END");
     ob_start(); $api->invoke($controller); $body = json_decode((string)ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
     assertSameValue(503, http_response_code(), 'Database fault remains retryable');

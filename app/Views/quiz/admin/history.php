@@ -62,6 +62,9 @@ $esc = static fn($value): string => htmlspecialchars((string)$value, ENT_QUOTES,
                         <?php if (isset($subject['event_id'])): ?><br><?php echo $esc($i18n->t('quiz.history.observation')); ?> #<?php echo (int)$subject['event_id']; ?><?php endif; ?>
                         <?php if (!empty($subject['absence_uid'])): ?><br><?php echo $esc($i18n->t('quiz.history.episode')); ?> <code><?php echo $esc($subject['absence_uid']); ?></code><?php endif; ?>
                     <?php endif; ?>
+                    <?php if (isset($subject['student_id']) && !isset($subject['attempt_id'])): ?><br>
+                        <?php echo $esc(trim(($subject['first_name'] ?? '') . ' ' . ($subject['last_name'] ?? ''))); ?> · #<?php echo (int)$subject['student_id']; ?>
+                    <?php endif; ?>
                 </td>
                 <td><details><summary><?php echo $esc($i18n->t('quiz.history.changes')); ?></summary>
                     <?php foreach (array_unique(array_merge(array_keys($entry['before']), array_keys($entry['after']))) as $field): ?>
