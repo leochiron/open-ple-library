@@ -529,8 +529,10 @@ rollback, old/new snapshots, complete CSV, CSRF and ownership. The existing
 contract. See `SPEC_EXECUTION_QUIZ_TECHNICAL_OVERRIDE.md` for the 4b contract,
 additive schema and publication manifest.
 
-Increment 5a adds an opt-in `preflight` pilot; new and existing quizzes default
-to `off`. Its server-bound cookie/document contexts, one-use 120-second challenges
+Increment 5a adds an opt-in `preflight` pilot. Existing quizzes and legacy
+creation callers retain their current mode; the admin creation form now defaults
+to strict fullscreen with continuous tracking and the declared-browser policy.
+Its server-bound cookie/document contexts, one-use 120-second challenges
 and strictly boolean reported checks provide a 60-second proof and permission.
 The preflight-only pilot does not renew this proof automatically. A fresh room
 HTML never contains the Forms URL in a strengthened mode, including under a tracking override.
@@ -572,6 +574,17 @@ tests cover incarnation/purpose, expiry before consumption, SQL rollback,
 single-flight requests, finished guards, isolation, ordering and the preserved
 iframe. See `SPEC_EXECUTION_QUIZ_TRACKING_CONTINUOUS.md` for schema and publication.
 Use a fictitious session and manual native-gesture acceptance before general use.
+
+The room preparation starts with an explicit button above the steps. It then
+guides the student through a native Enter key press, another tab and return,
+and fullscreen when required. Each completed step is checked immediately; final
+validation is offered only once all required observations are received.
+After access is suspended, the same preparation can restore access, with an
+actionable fullscreen button before server admission. A browser refusal keeps
+that button usable for retry. Live fullscreen settings update both the monitor
+and preparation. Server refusals remain authoritative, and the existing form
+iframe and its draft survive suspension. Outside required fullscreen, the form
+is immediately hidden while departure/return warnings remain visible.
 
 Increment 6 adds an optional declared-browser policy, initially off. Enabling it
 requires `preflight` or `continuous` tracking and an explicit owner action with
