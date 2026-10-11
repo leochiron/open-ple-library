@@ -70,15 +70,16 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
     <section id="quiz-preflight" class="quiz-panel quiz-preparation" aria-labelledby="quiz-preflight-title" hidden>
         <span class="quiz-preparation__eyebrow"><?php echo htmlspecialchars($i18n->t('quiz.preflight.eyebrow'), ENT_QUOTES, 'UTF-8'); ?></span>
         <h2 id="quiz-preflight-title"><?php echo htmlspecialchars($i18n->t('quiz.preflight.title'), ENT_QUOTES, 'UTF-8'); ?></h2>
-        <p><?php echo htmlspecialchars($i18n->t('quiz.preflight.steps'),ENT_QUOTES,'UTF-8'); ?></p>
-        <ol class="quiz-preparation__steps">
+        <p id="quiz-preflight-intro"><?php echo htmlspecialchars($i18n->t('quiz.preflight.steps'),ENT_QUOTES,'UTF-8'); ?></p>
+        <button type="button" id="quiz-preflight-start" class="quiz-room-button"><?php echo htmlspecialchars($i18n->t('quiz.preflight.start'),ENT_QUOTES,'UTF-8'); ?></button>
+        <p id="quiz-preflight-status" class="quiz-preparation__status" role="status" aria-live="polite"></p>
+        <p id="quiz-preflight-remaining" class="quiz-preparation__remaining" hidden></p>
+        <ol id="quiz-preflight-steps" class="quiz-preparation__steps" hidden>
             <li id="quiz-preflight-step-enter" data-done="false"><span><?php echo htmlspecialchars($i18n->t('quiz.preflight.step_enter'), ENT_QUOTES, 'UTF-8'); ?></span><button type="button" id="quiz-preflight-enter" class="quiz-room-button quiz-room-button--secondary" disabled><?php echo htmlspecialchars($i18n->t('quiz.preflight.enter'),ENT_QUOTES,'UTF-8'); ?></button></li>
             <li id="quiz-preflight-step-return" data-done="false"><span><?php echo htmlspecialchars($i18n->t('quiz.preflight.step_return'), ENT_QUOTES, 'UTF-8'); ?></span></li>
             <li id="quiz-preflight-step-fullscreen" data-done="false" hidden><span><?php echo htmlspecialchars($i18n->t('quiz.preflight.step_fullscreen'), ENT_QUOTES, 'UTF-8'); ?></span><button type="button" id="quiz-preflight-fullscreen" class="quiz-room-button quiz-room-button--secondary" hidden disabled><?php echo htmlspecialchars($i18n->t('quiz.preflight.fullscreen'),ENT_QUOTES,'UTF-8'); ?></button></li>
         </ol>
-        <p id="quiz-preflight-status" class="quiz-preparation__status" role="status" aria-live="polite"></p>
-        <p id="quiz-preflight-remaining" class="quiz-preparation__remaining" hidden></p>
-        <button type="button" id="quiz-preflight-submit" class="quiz-room-button"><?php echo htmlspecialchars($i18n->t('quiz.preflight.start'),ENT_QUOTES,'UTF-8'); ?></button>
+        <button type="button" id="quiz-preflight-submit" class="quiz-room-button" hidden disabled><?php echo htmlspecialchars($i18n->t('quiz.preflight.validate'),ENT_QUOTES,'UTF-8'); ?></button>
     </section>
 
     <!-- Lobby: waiting for teacher launch -->
@@ -187,6 +188,15 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
             prepareStart: <?php echo json_encode($i18n->t('quiz.preflight.start')); ?>,
             prepareEnterPrompt: <?php echo json_encode($i18n->t('quiz.preflight.enter')); ?>,
             prepareEnterDetected: <?php echo json_encode($i18n->t('quiz.preflight.enter_detected')); ?>,
+            prepareTitle: <?php echo json_encode($i18n->t('quiz.preflight.title')); ?>,
+            prepareReturnTitle: <?php echo json_encode($i18n->t('quiz.preflight.return_title')); ?>,
+            prepareRecovery: <?php echo json_encode($i18n->t('quiz.preflight.recovery')); ?>,
+            prepareIntro: <?php echo json_encode($i18n->t('quiz.preflight.steps')); ?>,
+            prepareReturnIntro: <?php echo json_encode($i18n->t('quiz.preflight.return_intro')); ?>,
+            prepareKeyboard: <?php echo json_encode($i18n->t('quiz.preflight.now_keyboard')); ?>,
+            prepareTab: <?php echo json_encode($i18n->t('quiz.preflight.now_tab')); ?>,
+            prepareFullscreen: <?php echo json_encode($i18n->t('quiz.preflight.now_fullscreen')); ?>,
+            prepareFullscreenError: <?php echo json_encode($i18n->t('quiz.preflight.fullscreen_error')); ?>,
             prepareValidate: <?php echo json_encode($i18n->t('quiz.preflight.validate')); ?>,
             prepareRetry: <?php echo json_encode($i18n->t('quiz.preflight.retry')); ?>,
             prepareWorking: <?php echo json_encode($i18n->t('quiz.preflight.working')); ?>,

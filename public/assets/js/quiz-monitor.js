@@ -250,6 +250,7 @@
         if (typeof state.min_away_seconds === 'number') { cfg.minAwaySeconds = state.min_away_seconds; }
         if (typeof state.require_fullscreen === 'boolean') {
             requireFullscreen = state.require_fullscreen;
+            cfg.requireFullscreen = state.require_fullscreen;
             var fullscreenRule = document.getElementById('quiz-rule-fullscreen');
             if (fullscreenRule) { fullscreenRule.hidden = !requireFullscreen; }
             var strictLabel = document.getElementById('quiz-strict-label');
@@ -498,7 +499,9 @@
         if (!els.fsGate) {
             return;
         }
-        var examAllowed = !detached && accessAllowed && currentState === 'running' && !finished;
+        var preparationVisible = preflight && preflight.visible();
+        var examAllowed = !detached && accessAllowed && currentState === 'running' && !finished && !preparationVisible;
+        if (preparationVisible) { hide(els.exam); hide(els.completion); }
         var needGate = examAllowed && requireFullscreen && isFullscreen() !== true;
         els.fsGate.hidden = !needGate;
         if (examAllowed) {

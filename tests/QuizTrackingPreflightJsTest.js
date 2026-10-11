@@ -34,7 +34,7 @@ function setup(overrides = {}, monitor = true, configure = null, autoStart = tru
     if (monitor) { h.run(source('quiz-monitor.js')); }
     else { preflight = h.window.QuizTrackingPreflight({ config: cfg }); preflight.update(initial); }
     // Existing protocol tests explicitly start preparation; dedicated UX tests leave it idle.
-    if (autoStart) { h.elements.get('quiz-preflight-submit').emit('click', { isTrusted: true }); }
+    if (autoStart) { h.elements.get('quiz-preflight-start').emit('click', { isTrusted: true }); }
     return { ...h, cfg, diagnostics, challenges, preflight,
         blockProbe: () => { listenerBlocked = true; },
         result: (value, delay = 0) => { result = value; resultDelay = delay; h.setState(value); },
@@ -43,7 +43,7 @@ function setup(overrides = {}, monitor = true, configure = null, autoStart = tru
         visible: value => { h.document.visibilityState = value ? 'visible' : 'hidden'; h.document.emit('visibilitychange', { isTrusted: true }); },
         fullscreen: value => { h.document.fullscreenElement = value ? h.document.documentElement : null; h.document.emit('fullscreenchange', { isTrusted: true }); },
         enter: trusted => { h.elements.get('quiz-preflight-enter').emit('keydown', { key: 'Enter', isTrusted: trusted }); },
-        submit: () => h.elements.get('quiz-preflight-submit').emit('click', { isTrusted: true }),
+        submit: () => h.elements.get(h.elements.get('quiz-preflight-start').hidden ? 'quiz-preflight-submit' : 'quiz-preflight-start').emit('click', { isTrusted: true }),
     };
 }
 

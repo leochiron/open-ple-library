@@ -6,12 +6,16 @@
         var serial = 0, deadline = null, challenge = null, checks = null, removers = [];
         var admitted = false, armed = false, blocked = { hidden: false, blur: false, fullscreen_exit: false };
         var preflightPending = false, pulsePending = false, networkPending = 0, restartAfterSettlement = false;
-        var stopped = false, initiated = false, collectingUntil = null, expired = false;
+        var stopped = false, initiated = false, collectingUntil = null, expired = false, everAdmitted = false, needsRecovery = false, fullscreenError = false;
         var ui = cfg.i18n || {};
         var panel = document.getElementById('quiz-preflight');
         var enter = document.getElementById('quiz-preflight-enter');
         var fsButton = document.getElementById('quiz-preflight-fullscreen');
+        var startButton = document.getElementById('quiz-preflight-start');
         var submitButton = document.getElementById('quiz-preflight-submit');
+        var stepList = document.getElementById('quiz-preflight-steps');
+        var title = document.getElementById('quiz-preflight-title');
+        var intro = document.getElementById('quiz-preflight-intro');
         var status = document.getElementById('quiz-preflight-status');
         var remaining = document.getElementById('quiz-preflight-remaining');
         var steps = { enter: document.getElementById('quiz-preflight-step-enter'),
@@ -72,21 +76,41 @@
         function unavailable() { return stopped || (options.isDetached && options.isDetached()); }
         function visible() { return !unavailable() && strengthened(mode) && !admitted && !cfg.state.finished && cfg.state.state === 'running'; }
         function ready() { return checks && checks.trusted_enter_received && checks.hidden_received && checks.visible_after_hidden_received && checks.focus_after_hidden_received && (!cfg.requireFullscreen || (checks.fullscreen_change_received && fullscreen())); }
+        function currentStep() {
+            if (!checks || !checks.trusted_enter_received) { return 'enter'; }
+            if (!checks.visible_after_hidden_received || !checks.focus_after_hidden_received) { return 'return'; }
+            return ready() ? null : 'fullscreen';
+        }
         function render() {
             if (panel) { panel.hidden = !visible(); panel.setAttribute('aria-busy', String(stage === 'starting' || (stage === 'submitted' && preflightPending))); }
             var collecting = stage === 'collecting', working = stage === 'starting' || (stage === 'submitted' && preflightPending);
-            if (submitButton) {
-                submitButton.textContent = working ? ui.prepareWorking : collecting ? ui.prepareValidate : stage === 'idle' ? ui.prepareStart : ui.prepareRetry;
-                submitButton.disabled = working || pulsePending || networkPending > 0 || (collecting && !ready());
+            var current = collecting ? currentStep() : null, allReady = collecting && ready();
+            if (title) { title.textContent = everAdmitted ? ui.prepareReturnTitle : ui.prepareTitle; }
+            if (intro) { intro.hidden = collecting || working; intro.textContent = everAdmitted ? ui.prepareReturnIntro : ui.prepareIntro; }
+            if (startButton) {
+                startButton.hidden = collecting || (stage === 'submitted' && preflightPending);
+                startButton.textContent = working ? ui.prepareWorking : stage === 'idle' || everAdmitted ? ui.prepareStart : ui.prepareRetry;
+                startButton.disabled = working || pulsePending || networkPending > 0;
             }
-            if (enter) { enter.disabled = !collecting; enter.textContent = checks && checks.trusted_enter_received ? ui.prepareEnterDetected : ui.prepareEnterPrompt; }
-            if (fsButton) { fsButton.hidden = !cfg.requireFullscreen; fsButton.disabled = !collecting; fsButton.textContent = fullscreen() ? ui.prepareExitFullscreen : ui.prepareEnterFullscreen; }
-            if (status) { status.textContent = working ? ui.prepareWorking : collecting ? (ready() ? ui.prepareReady : ui.prepareCollecting) : stage === 'idle' ? ui.prepareIdle : expired ? ui.prepareExpired : stage === 'error' ? ui.prepareNetworkError : ui.prepareRefused; }
+            if (submitButton) {
+                submitButton.hidden = !allReady && !(stage === 'submitted' && preflightPending);
+                submitButton.textContent = working ? ui.prepareWorking : ui.prepareValidate;
+                submitButton.disabled = !allReady || working || pulsePending || networkPending > 0;
+            }
+            if (stepList) { stepList.hidden = !collecting; }
+            if (enter) { enter.hidden = current !== 'enter'; enter.disabled = !collecting; enter.textContent = ui.prepareEnterPrompt; }
+            if (fsButton) { fsButton.hidden = !cfg.requireFullscreen || current !== 'fullscreen'; fsButton.disabled = !collecting || current !== 'fullscreen'; fsButton.textContent = fullscreen() ? ui.prepareExitFullscreen : ui.prepareEnterFullscreen; }
+            if (status) { status.textContent = working ? ui.prepareWorking : collecting ? (allReady ? ui.prepareReady : fullscreenError && current === 'fullscreen' ? ui.prepareFullscreenError : current === 'enter' ? ui.prepareKeyboard : current === 'return' ? ui.prepareTab : ui.prepareFullscreen) : stage === 'idle' ? ui.prepareIdle : expired ? ui.prepareExpired : stage === 'error' ? ui.prepareNetworkError : needsRecovery ? ui.prepareRecovery : ui.prepareRefused; }
             var tick = clock();
             if (remaining) { remaining.hidden = !collecting; remaining.textContent = collecting && tick !== null ? (ui.prepareRemaining || '{seconds} s').replace('{seconds}', String(Math.max(0, Math.ceil((collectingUntil - tick) / 1000)))) : ''; }
-            if (steps.enter) { steps.enter.setAttribute('data-done', String(!!checks && checks.trusted_enter_received)); }
-            if (steps.return) { steps.return.setAttribute('data-done', String(!!checks && checks.visible_after_hidden_received && checks.focus_after_hidden_received)); }
-            if (steps.fullscreen) { steps.fullscreen.hidden = !cfg.requireFullscreen; steps.fullscreen.setAttribute('data-done', String(!!checks && checks.fullscreen_change_received && fullscreen())); }
+            var done = { enter: !!checks && checks.trusted_enter_received, return: !!checks && checks.visible_after_hidden_received && checks.focus_after_hidden_received, fullscreen: !!checks && checks.fullscreen_change_received && fullscreen() };
+            Object.keys(steps).forEach(function (name) {
+                if (!steps[name]) { return; }
+                steps[name].hidden = !collecting || (name === 'fullscreen' && !cfg.requireFullscreen) || (!done[name] && current !== name);
+                steps[name].setAttribute('data-done', String(!!done[name]));
+                steps[name].setAttribute('data-active', String(current === name));
+                steps[name].setAttribute('aria-current', current === name ? 'step' : 'false');
+            });
         }
         function cancel() { ++serial; clearTimeout(deadline); removers.forEach(function (remove) { remove(); }); removers = []; challenge = null; if (networkPending === 0) { preflightPending = false; } }
         function listen(target, type, handler) {
@@ -110,7 +134,7 @@
         }
         function start() {
             if (unavailable() || !strengthened(mode) || cfg.state.state !== 'running' || preflightPending || pulsePending || networkPending > 0 || (options.isCompletionPending && options.isCompletionPending())) { return; }
-            initiated = true; cancel(); checks = null; expired = false; collectingUntil = null;
+            initiated = true; cancel(); checks = null; expired = false; needsRecovery = false; fullscreenError = false; collectingUntil = null;
             stage = 'starting'; preflightPending = true; admitted = false; armed = false; render();
             var run = serial;
             request(cfg.endpoints.challenge, body()).then(function (response) {
@@ -131,7 +155,7 @@
                 });
                 listen(window, 'blur', function (event) { if (nativeEvent(event) && stage === 'collecting') { blocked.blur = true; } });
                 listen(window, 'focus', function (event) { if (nativeEvent(event) && visibility() === 'visible' && focus()) { blocked.blur = false; if (stage === 'collecting' && checks.hidden_received) { checks.focus_after_hidden_received = true; } render(); } });
-                var fs = function (event) { if (!nativeEvent(event)) { return; } if (fullscreen()) { blocked.fullscreen_exit = false; } else if (stage === 'collecting') { blocked.fullscreen_exit = true; } if (stage === 'collecting') { checks.fullscreen_change_received = true; checks.fullscreen_active = fullscreen(); } render(); };
+                var fs = function (event) { if (!nativeEvent(event)) { return; } fullscreenError = false; if (fullscreen()) { blocked.fullscreen_exit = false; } else if (stage === 'collecting') { blocked.fullscreen_exit = true; } if (stage === 'collecting') { checks.fullscreen_change_received = true; checks.fullscreen_active = fullscreen(); } render(); };
                 listen(document, 'fullscreenchange', fs); listen(document, 'webkitfullscreenchange', fs);
                 collectingUntil = clock() + 45000;
                 deadline = setTimeout(function () { expired = true; submit(); }, 45000); render();
@@ -183,8 +207,19 @@
         // Stable cadence: fifteen-second state polls never reset this interval.
         var pulseTimer = setInterval(pulse, 20000);
         var renderTimer = setInterval(function () { if (stage === 'collecting') { render(); } }, 1000);
-        try { if (submitButton) { submitButton.addEventListener('click', submit); } } catch (ignored) {}
-        try { if (fsButton) { fsButton.addEventListener('click', function () { try { var target = fullscreen() ? document : document.documentElement; var action = fullscreen() ? (document.exitFullscreen || document.webkitExitFullscreen) : (target.requestFullscreen || target.webkitRequestFullscreen); if (action) { var promise = action.call(target); if (promise && promise.catch) { promise.catch(function () {}); } } } catch (ignored) {} }); } } catch (ignored) {}
+        try { if (startButton) { startButton.addEventListener('click', start); } if (submitButton) { submitButton.addEventListener('click', submit); } } catch (ignored) {}
+        try { if (fsButton) { fsButton.addEventListener('click', function () {
+            if (stage !== 'collecting' || fsButton.disabled) { return; }
+            fullscreenError = false;
+            function failed() { fullscreenError = true; render(); }
+            try {
+                var target = fullscreen() ? document : document.documentElement;
+                var action = fullscreen() ? (document.exitFullscreen || document.webkitExitFullscreen) : (target.requestFullscreen || target.webkitRequestFullscreen);
+                if (!action) { failed(); return; }
+                // Call directly from the user's click, including when server access is denied.
+                var promise = action.call(target); if (promise && promise.catch) { promise.catch(failed); }
+            } catch (ignored) { failed(); }
+        }); } } catch (ignored) {}
         return {
             update: function (state) {
                 if (unavailable()) { render(); return; }
@@ -192,7 +227,9 @@
                 var nextRevision = typeof state.settings_revision === 'number' ? state.settings_revision : revision;
                 var changed = nextMode !== mode || nextGeneration !== generation || (nextRevision > revision && (preflightPending || state.access_allowed === false));
                 cfg.state = Object.assign({}, cfg.state, state); mode = nextMode; generation = nextGeneration; revision = Math.max(revision, nextRevision);
+                if (admitted && state.access_allowed === false) { needsRecovery = true; }
                 admitted = state.access_allowed === true;
+                if (admitted) { everAdmitted = true; }
                 if (mode === 'off') { cancel(); stage = 'idle'; armed = false; blocked = { hidden: false, blur: false, fullscreen_exit: false }; render(); return; }
                 if (cfg.state.state !== 'running') { cancel(); stage = 'idle'; render(); return; }
                 if (changed) { cancel(); stage = 'idle'; armed = false; }
