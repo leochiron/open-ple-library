@@ -117,6 +117,12 @@ $stateLabels = [
                 <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_url_hint'), ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
             <div class="quiz-field quiz-field--full">
+                <label for="qa-edit-url"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_edit_url'), ENT_QUOTES, 'UTF-8'); ?></label>
+                <input type="url" id="qa-edit-url" name="google_form_edit_url" class="quiz-input"
+                   placeholder="https://docs.google.com/forms/d/.../edit" value="<?php echo $oldVal('google_form_edit_url'); ?>">
+                <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_edit_url_hint'), ENT_QUOTES, 'UTF-8'); ?></p>
+            </div>
+            <div class="quiz-field quiz-field--full">
                 <label for="qa-entry"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_entry'), ENT_QUOTES, 'UTF-8'); ?></label>
                 <input type="text" id="qa-entry" name="attempt_entry_id" required class="quiz-input"
                        placeholder="entry.123456789 — ou collez l'URL préremplie complète" value="<?php echo $oldVal('attempt_entry_id'); ?>">
