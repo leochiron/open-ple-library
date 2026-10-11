@@ -235,8 +235,10 @@ async function studentTest() {
     h.setEventResponse(event => Promise.resolve({ ok: true, json: async () => ({ finished: false, event_uid: event.event_uid, attempt_id: 1 }) }));
     el('quiz-resume-btn').emit('click');
     await flush();
-    assert.equal(el('quiz-exam').hidden, false, 'Acknowledged resume reopens the existing quiz');
+    assert.equal(el('quiz-exam').hidden, true, 'Acknowledged resume protects the form until fullscreen is restored');
     assert.equal(el('quiz-fullscreen-gate').hidden, false, 'Resume applies the current fullscreen rule');
+    el('quiz-fullscreen-btn').emit('click');
+    assert.equal(el('quiz-exam').hidden, false, 'Entering fullscreen restores the existing form');
     assert.equal(wrap.children.length, 1, 'Settings, finish and resume never replace the iframe');
     assert.equal(wrap.children[0], originalIframe);
     assert.equal(originalIframe.answer, 'Student draft');

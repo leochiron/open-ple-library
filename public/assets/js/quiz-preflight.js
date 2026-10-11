@@ -6,11 +6,20 @@
         var serial = 0, deadline = null, challenge = null, checks = null, removers = [];
         var admitted = false, armed = false, blocked = { hidden: false, blur: false, fullscreen_exit: false };
         var preflightPending = false, pulsePending = false, networkPending = 0, restartAfterSettlement = false;
-        var stopped = false;
+        var stopped = false, initiated = false, collectingUntil = null, expired = false, everAdmitted = false, needsRecovery = false, fullscreenError = false;
+        var ui = cfg.i18n || {};
         var panel = document.getElementById('quiz-preflight');
         var enter = document.getElementById('quiz-preflight-enter');
         var fsButton = document.getElementById('quiz-preflight-fullscreen');
+        var startButton = document.getElementById('quiz-preflight-start');
         var submitButton = document.getElementById('quiz-preflight-submit');
+        var stepList = document.getElementById('quiz-preflight-steps');
+        var title = document.getElementById('quiz-preflight-title');
+        var intro = document.getElementById('quiz-preflight-intro');
+        var status = document.getElementById('quiz-preflight-status');
+        var remaining = document.getElementById('quiz-preflight-remaining');
+        var steps = { enter: document.getElementById('quiz-preflight-step-enter'),
+            return: document.getElementById('quiz-preflight-step-return'), fullscreen: document.getElementById('quiz-preflight-step-fullscreen') };
         function fullscreen() { try { return !!(document.fullscreenElement || document.webkitFullscreenElement); } catch (ignored) { return false; } }
         function visibility() { try { return document.visibilityState; } catch (ignored) { return null; } }
         function focus() { try { return document.hasFocus() === true; } catch (ignored) { return false; } }
@@ -65,7 +74,44 @@
                 });
         }
         function unavailable() { return stopped || (options.isDetached && options.isDetached()); }
-        function render() { if (panel) { panel.hidden = unavailable() || !strengthened(mode) || (admitted && stage === 'submitted') || cfg.state.state !== 'running'; } if (fsButton) { fsButton.hidden = !cfg.requireFullscreen; } }
+        function visible() { return !unavailable() && strengthened(mode) && !admitted && !cfg.state.finished && cfg.state.state === 'running'; }
+        function ready() { return checks && checks.trusted_enter_received && checks.hidden_received && checks.visible_after_hidden_received && checks.focus_after_hidden_received && (!cfg.requireFullscreen || (checks.fullscreen_change_received && fullscreen())); }
+        function currentStep() {
+            if (!checks || !checks.trusted_enter_received) { return 'enter'; }
+            if (!checks.visible_after_hidden_received || !checks.focus_after_hidden_received) { return 'return'; }
+            return ready() ? null : 'fullscreen';
+        }
+        function render() {
+            if (panel) { panel.hidden = !visible(); panel.setAttribute('aria-busy', String(stage === 'starting' || (stage === 'submitted' && preflightPending))); }
+            var collecting = stage === 'collecting', working = stage === 'starting' || (stage === 'submitted' && preflightPending);
+            var current = collecting ? currentStep() : null, allReady = collecting && ready();
+            if (title) { title.textContent = everAdmitted ? ui.prepareReturnTitle : ui.prepareTitle; }
+            if (intro) { intro.hidden = collecting || working; intro.textContent = everAdmitted ? ui.prepareReturnIntro : ui.prepareIntro; }
+            if (startButton) {
+                startButton.hidden = collecting || (stage === 'submitted' && preflightPending);
+                startButton.textContent = working ? ui.prepareWorking : stage === 'idle' || everAdmitted ? ui.prepareStart : ui.prepareRetry;
+                startButton.disabled = working || pulsePending || networkPending > 0;
+            }
+            if (submitButton) {
+                submitButton.hidden = !allReady && !(stage === 'submitted' && preflightPending);
+                submitButton.textContent = working ? ui.prepareWorking : ui.prepareValidate;
+                submitButton.disabled = !allReady || working || pulsePending || networkPending > 0;
+            }
+            if (stepList) { stepList.hidden = !collecting; }
+            if (enter) { enter.hidden = current !== 'enter'; enter.disabled = !collecting; enter.textContent = ui.prepareEnterPrompt; }
+            if (fsButton) { fsButton.hidden = !cfg.requireFullscreen || current !== 'fullscreen'; fsButton.disabled = !collecting || current !== 'fullscreen'; fsButton.textContent = fullscreen() ? ui.prepareExitFullscreen : ui.prepareEnterFullscreen; }
+            if (status) { status.textContent = working ? ui.prepareWorking : collecting ? (allReady ? ui.prepareReady : fullscreenError && current === 'fullscreen' ? ui.prepareFullscreenError : current === 'enter' ? ui.prepareKeyboard : current === 'return' ? ui.prepareTab : ui.prepareFullscreen) : stage === 'idle' ? ui.prepareIdle : expired ? ui.prepareExpired : stage === 'error' ? ui.prepareNetworkError : needsRecovery ? ui.prepareRecovery : ui.prepareRefused; }
+            var tick = clock();
+            if (remaining) { remaining.hidden = !collecting; remaining.textContent = collecting && tick !== null ? (ui.prepareRemaining || '{seconds} s').replace('{seconds}', String(Math.max(0, Math.ceil((collectingUntil - tick) / 1000)))) : ''; }
+            var done = { enter: !!checks && checks.trusted_enter_received, return: !!checks && checks.visible_after_hidden_received && checks.focus_after_hidden_received, fullscreen: !!checks && checks.fullscreen_change_received && fullscreen() };
+            Object.keys(steps).forEach(function (name) {
+                if (!steps[name]) { return; }
+                steps[name].hidden = !collecting || (name === 'fullscreen' && !cfg.requireFullscreen) || (!done[name] && current !== name);
+                steps[name].setAttribute('data-done', String(!!done[name]));
+                steps[name].setAttribute('data-active', String(current === name));
+                steps[name].setAttribute('aria-current', current === name ? 'step' : 'false');
+            });
+        }
         function cancel() { ++serial; clearTimeout(deadline); removers.forEach(function (remove) { remove(); }); removers = []; challenge = null; if (networkPending === 0) { preflightPending = false; } }
         function listen(target, type, handler) {
             // A blocked registration must still produce a bounded diagnostic with false checks.
@@ -88,28 +134,36 @@
         }
         function start() {
             if (unavailable() || !strengthened(mode) || cfg.state.state !== 'running' || preflightPending || pulsePending || networkPending > 0 || (options.isCompletionPending && options.isCompletionPending())) { return; }
-            cancel(); stage = 'starting'; preflightPending = true; admitted = false; armed = false; render();
+            initiated = true; cancel(); checks = null; expired = false; needsRecovery = false; fullscreenError = false; collectingUntil = null;
+            stage = 'starting'; preflightPending = true; admitted = false; armed = false; render();
             var run = serial;
             request(cfg.endpoints.challenge, body()).then(function (response) {
                 if (run !== serial || !strengthened(mode)) { return; }
                 challenge = response.challenge; stage = 'collecting';
                 checks = { listener_roundtrip: false, trusted_enter_received: false, hidden_received: false, visible_after_hidden_received: false, focus_after_hidden_received: false, fullscreen_change_received: false, fullscreen_active: fullscreen() };
                 checks.listener_roundtrip = probeListener();
-                listen(enter, 'keydown', function (event) { if (stage === 'collecting' && nativeEvent(event) && event.key === 'Enter') { checks.trusted_enter_received = true; } });
+                var keyboard = function (event) { if (stage === 'collecting' && nativeEvent(event) && event.key === 'Enter') { checks.trusted_enter_received = true; render(); } };
+                // Native keydown bubbles to the document even if a click moved focus away
+                // from the dedicated button. Clicks and scripted key events never count.
+                listen(document, 'keydown', keyboard);
+                listen(enter, 'keydown', keyboard);
                 listen(document, 'visibilitychange', function (event) {
                     if (!nativeEvent(event)) { return; }
                     if (visibility() === 'hidden') { if (stage === 'collecting') { checks.hidden_received = true; blocked.hidden = true; } }
                     else if (visibility() === 'visible') { blocked.hidden = false; if (stage === 'collecting' && checks.hidden_received) { checks.visible_after_hidden_received = true; if (focus()) { checks.focus_after_hidden_received = true; } } }
+                    render();
                 });
                 listen(window, 'blur', function (event) { if (nativeEvent(event) && stage === 'collecting') { blocked.blur = true; } });
-                listen(window, 'focus', function (event) { if (nativeEvent(event) && visibility() === 'visible' && focus()) { blocked.blur = false; if (stage === 'collecting' && checks.hidden_received) { checks.focus_after_hidden_received = true; } } });
-                var fs = function (event) { if (!nativeEvent(event)) { return; } if (fullscreen()) { blocked.fullscreen_exit = false; } else if (stage === 'collecting') { blocked.fullscreen_exit = true; } if (stage === 'collecting') { checks.fullscreen_change_received = true; checks.fullscreen_active = fullscreen(); } };
+                listen(window, 'focus', function (event) { if (nativeEvent(event) && visibility() === 'visible' && focus()) { blocked.blur = false; if (stage === 'collecting' && checks.hidden_received) { checks.focus_after_hidden_received = true; } render(); } });
+                var fs = function (event) { if (!nativeEvent(event)) { return; } fullscreenError = false; if (fullscreen()) { blocked.fullscreen_exit = false; } else if (stage === 'collecting') { blocked.fullscreen_exit = true; } if (stage === 'collecting') { checks.fullscreen_change_received = true; checks.fullscreen_active = fullscreen(); } render(); };
                 listen(document, 'fullscreenchange', fs); listen(document, 'webkitfullscreenchange', fs);
-                deadline = setTimeout(submit, 45000); render();
-            }).catch(function () { if (run === serial) { stage = 'idle'; render(); } }).finally(function () { if (stage !== 'collecting' && networkPending === 0) { preflightPending = false; } });
+                collectingUntil = clock() + 45000;
+                deadline = setTimeout(function () { expired = true; submit(); }, 45000); render();
+                if (enter && typeof enter.focus === 'function') { enter.focus(); }
+            }).catch(function () { if (run === serial) { stage = 'error'; render(); } }).finally(function () { if (stage !== 'collecting' && networkPending === 0) { preflightPending = false; } render(); });
         }
         function submit() {
-            if (stage !== 'collecting' || !challenge) { if (stage === 'submitted' || stage === 'idle') { start(); } return; }
+            if (stage !== 'collecting' || !challenge) { if (stage === 'submitted' || stage === 'idle' || stage === 'error') { start(); } return; }
             clearTimeout(deadline);
             // An extension can change registration methods after the gestures were observed.
             checks.listener_roundtrip = probeListener();
@@ -118,7 +172,7 @@
             blocked.hidden = blocked.hidden || visibility() !== 'visible';
             blocked.blur = blocked.blur || !focus();
             blocked.fullscreen_exit = blocked.fullscreen_exit || (cfg.requireFullscreen && !fullscreen());
-            stage = 'submitted'; var run = serial, started = clock();
+            stage = 'submitted'; render(); var run = serial, started = clock();
             var requestOrder = options.onDecisionRequest ? options.onDecisionRequest() : null;
             request(cfg.endpoints.preflight, body({ challenge: challenge, checks: checks })).then(function (state) {
                 if (run !== serial) { return; }
@@ -130,13 +184,13 @@
                     if (admitted) { armed = true; }
                 }
                 render();
-            }).catch(function () { if (run === serial) { admitted = false; render(); } }).finally(function () { preflightPending = false; });
+            }).catch(function () { if (run === serial) { admitted = false; stage = 'error'; render(); } }).finally(function () { preflightPending = false; render(); });
         }
 
         function pulse() {
             var finished = options.isFinished ? options.isFinished() : !!cfg.state.finished;
-            if (unavailable() || mode !== 'continuous' || cfg.state.state !== 'running' || finished || preflightPending || pulsePending || networkPending > 0 || (options.isCompletionPending && options.isCompletionPending())) { return; }
-            pulsePending = true; var run = serial;
+            if (unavailable() || !initiated || mode !== 'continuous' || cfg.state.state !== 'running' || finished || preflightPending || pulsePending || networkPending > 0 || (options.isCompletionPending && options.isCompletionPending())) { return; }
+            pulsePending = true; render(); var run = serial;
             request(cfg.endpoints.pulseChallenge, body()).then(function (response) {
                 if (run !== serial || mode !== 'continuous' || cfg.state.state !== 'running' || (options.isFinished ? options.isFinished() : cfg.state.finished) || (options.isCompletionPending && options.isCompletionPending())) { return; }
                 var pulseChecks = { listener_roundtrip: probeListener(), fullscreen_active: false };
@@ -148,12 +202,24 @@
                     else { admitted = state.access_allowed === true && clock() !== null; }
                     render();
                 });
-            }).catch(function () {}).finally(function () { pulsePending = false; });
+            }).catch(function () {}).finally(function () { pulsePending = false; render(); });
         }
         // Stable cadence: fifteen-second state polls never reset this interval.
         var pulseTimer = setInterval(pulse, 20000);
-        try { if (submitButton) { submitButton.addEventListener('click', submit); } } catch (ignored) {}
-        try { if (fsButton) { fsButton.addEventListener('click', function () { try { var target = fullscreen() ? document : document.documentElement; var action = fullscreen() ? (document.exitFullscreen || document.webkitExitFullscreen) : (target.requestFullscreen || target.webkitRequestFullscreen); if (action) { var promise = action.call(target); if (promise && promise.catch) { promise.catch(function () {}); } } } catch (ignored) {} }); } } catch (ignored) {}
+        var renderTimer = setInterval(function () { if (stage === 'collecting') { render(); } }, 1000);
+        try { if (startButton) { startButton.addEventListener('click', start); } if (submitButton) { submitButton.addEventListener('click', submit); } } catch (ignored) {}
+        try { if (fsButton) { fsButton.addEventListener('click', function () {
+            if (stage !== 'collecting' || fsButton.disabled) { return; }
+            fullscreenError = false;
+            function failed() { fullscreenError = true; render(); }
+            try {
+                var target = fullscreen() ? document : document.documentElement;
+                var action = fullscreen() ? (document.exitFullscreen || document.webkitExitFullscreen) : (target.requestFullscreen || target.webkitRequestFullscreen);
+                if (!action) { failed(); return; }
+                // Call directly from the user's click, including when server access is denied.
+                var promise = action.call(target); if (promise && promise.catch) { promise.catch(failed); }
+            } catch (ignored) { failed(); }
+        }); } } catch (ignored) {}
         return {
             update: function (state) {
                 if (unavailable()) { render(); return; }
@@ -161,18 +227,21 @@
                 var nextRevision = typeof state.settings_revision === 'number' ? state.settings_revision : revision;
                 var changed = nextMode !== mode || nextGeneration !== generation || (nextRevision > revision && (preflightPending || state.access_allowed === false));
                 cfg.state = Object.assign({}, cfg.state, state); mode = nextMode; generation = nextGeneration; revision = Math.max(revision, nextRevision);
+                if (admitted && state.access_allowed === false) { needsRecovery = true; }
                 admitted = state.access_allowed === true;
+                if (admitted) { everAdmitted = true; }
                 if (mode === 'off') { cancel(); stage = 'idle'; armed = false; blocked = { hidden: false, blur: false, fullscreen_exit: false }; render(); return; }
                 if (cfg.state.state !== 'running') { cancel(); stage = 'idle'; render(); return; }
                 if (changed) { cancel(); stage = 'idle'; armed = false; }
                 if (stage === 'submitted' && admitted) { armed = true; }
-                if (cfg.state.state === 'running' && stage === 'idle' && changed) { if (networkPending > 0) { restartAfterSettlement = true; } else { start(); } }
+                if (cfg.state.state === 'running' && stage === 'idle' && changed && initiated) { if (networkPending > 0) { restartAfterSettlement = true; } else { start(); } }
                 render();
             },
             // Suspension keeps ordinary observations alive after acquired admission.
             captureAllowed: function (source) { return mode === 'off' || (armed && stage === 'submitted' && !blocked[source]); },
             preparing: function () { return strengthened(mode) && preflightPending; },
-            stop: function () { stopped = true; restartAfterSettlement = false; clearInterval(pulseTimer); cancel(); render(); }
+            visible: visible,
+            stop: function () { stopped = true; restartAfterSettlement = false; clearInterval(pulseTimer); clearInterval(renderTimer); cancel(); render(); }
         };
     };
 }());

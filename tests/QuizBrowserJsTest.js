@@ -51,7 +51,7 @@ async function twoEnvelopesAndFreshPulse() {
     assert.equal(challenges.length, 1); assert.equal(pulses.length, 1);
     assert.equal(pulses[0].browser.capabilities.abort_controller, false);
     assert.equal(pulses[0].schema_version, 2);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false);
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false);
     assert.equal(h.elements.get('quiz-iframe-wrap').children[0], form);
     assert.equal(form.answer, 'Private draft');
     assert.equal(JSON.stringify([...h.challenges, ...h.diagnostics, ...pulses]).includes('Private draft'), false);
@@ -70,13 +70,13 @@ async function throwingCapabilities() {
         const h = browserSetup({}, change); await flush(); await h.tick(45000);
         assert.equal(h.diagnostics.length, 1, `${name} failure still posts a bounded false diagnostic`);
         assert.equal(h.diagnostics[0].browser.capabilities[name], false, name);
-        assert.equal(h.elements.get('quiz-access-unavailable').hidden, false);
+        assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false);
         assert.equal(h.events.length, 0, 'Unknown preparation states never fabricate ordinary incidents');
         assert.equal(JSON.stringify(h.diagnostics).includes('private getter failure'), false);
     }
     const brokenFetch = browserSetup({}, h => { h.context.fetch = undefined; }); await flush();
     assert.equal(brokenFetch.challenges.length, 0, 'No transmission is possible when fetch itself is unavailable');
-    assert.equal(brokenFetch.elements.get('quiz-access-unavailable').hidden, false);
+    assert.equal(brokenFetch.elements.get('quiz-access-unavailable').hidden && brokenFetch.elements.get('quiz-preflight').hidden, false);
     const throwsFetch = browserSetup({}, h => { h.context.fetch = failGetter; }); await flush();
     assert.equal(throwsFetch.elements.get('quiz-iframe-wrap').children.length, 0, 'Synchronous fetch failure never grants permission');
 }
@@ -103,9 +103,9 @@ async function lossOfClockAndUnknownSources() {
     assert.equal(h.events.length, 0, 'Unknown focus/fullscreen/visibility does not become a departure or return');
     Object.defineProperty(h.context.performance, 'now', { configurable: true, get: failGetter });
     await h.tick(500);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Unreadable monotone clock immediately masks even an allowed override decision');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'Unreadable monotone clock immediately masks even an allowed override decision');
     h.setState(allowed(h)); await h.tick(15000);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'No wall-clock fallback can revive a permission');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'No wall-clock fallback can revive a permission');
     assert.equal(h.elements.get('quiz-iframe-wrap').children[0], form); assert.equal(form.answer, 'Private draft');
 }
 
