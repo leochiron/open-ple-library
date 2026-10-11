@@ -86,9 +86,10 @@
         onAck: function (result, event) {
             updateIncidents(result.incident_count, result.status);
             if (result.access_allowed === false) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
-            var seconds = event.duration_ms === undefined ? 0 : event.duration_ms / 1000;
+            var seconds = event.duration_ms === undefined ? 0 : Math.round(event.duration_ms / 100) / 10;
             if (result.is_incident) { showAwayWarning(cfg.i18n.incidentWarning.replace('{seconds}', String(seconds))); }
-            else if (seconds >= 3) { showAwayWarning(cfg.i18n.awayWarning.replace('{seconds}', String(seconds))); }
+            else if (['hidden', 'blur', 'fullscreen_exit'].indexOf(event.type) !== -1) { showAwayWarning(cfg.i18n.awayWarning.replace('{seconds}', String(seconds))); }
+            else if (event.type === 'away_start') { showAwayWarning(cfg.i18n.exitRecorded); }
         },
         onStatus: function (status) {
             if (!els.trackingStatus) { return; }
@@ -173,9 +174,9 @@
         }
 
         if (!accessAllowed) {
-            [els.lobby, els.exam, els.closed, els.finished, els.completion, els.fsGate, els.timeover, els.awayWarning].forEach(hide);
+            [els.lobby, els.exam, els.closed, els.finished, els.completion, els.fsGate, els.timeover].forEach(hide);
             timeoverShown = false;
-            show(els.accessUnavailable);
+            if (preflight && preflight.visible()) { hide(els.accessUnavailable); } else { show(els.accessUnavailable); }
             if (els.finishBtn) { els.finishBtn.disabled = true; els.resumeBtn.disabled = true; }
             return;
         }
@@ -251,6 +252,8 @@
             requireFullscreen = state.require_fullscreen;
             var fullscreenRule = document.getElementById('quiz-rule-fullscreen');
             if (fullscreenRule) { fullscreenRule.hidden = !requireFullscreen; }
+            var strictLabel = document.getElementById('quiz-strict-label');
+            if (strictLabel) { strictLabel.hidden = !requireFullscreen; }
         }
         if (typeof state.reload_is_incident === 'boolean') {
             cfg.reloadIsIncident = state.reload_is_incident;
@@ -354,14 +357,21 @@
         var source = type === 'reload' ? 'navigation' : (type === 'leave' ? 'page' : 'shortcut');
         if (!detached && (!preflight || preflight.captureAllowed(source))) { journal.observe(type, source); }
     }
+    var localAway = { hidden: false, blur: false, fullscreen_exit: false };
     function markAway(kind) {
-        if (currentState === 'running' && !finished && !detached && (!preflight || preflight.captureAllowed(kind))) { journal.start(kind); }
+        if (currentState === 'running' && !finished && !detached && (!preflight || preflight.captureAllowed(kind))) {
+            journal.start(kind);
+            if (!localAway[kind]) { localAway[kind] = true; showAwayWarning(cfg.i18n.exitDetected); }
+        }
     }
-    function markBack(kind) { journal.end(kind); }
+    function markBack(kind) {
+        if (localAway[kind]) { localAway[kind] = false; showAwayWarning(cfg.i18n.exitReturned); }
+        journal.end(kind);
+    }
 
     var warningTimeout = null;
     function showAwayWarning(text) {
-        if (!els.awayWarning || detached || !accessAllowed) {
+        if (!els.awayWarning || detached || finished || currentState !== 'running') {
             return;
         }
         els.awayWarningText.textContent = text;
@@ -488,8 +498,14 @@
         if (!els.fsGate) {
             return;
         }
-        var needGate = !strengthened(cfg.state.tracking_mode) && !detached && accessAllowed && requireFullscreen && currentState === 'running' && !finished && !isFullscreen();
+        var examAllowed = !detached && accessAllowed && currentState === 'running' && !finished;
+        var needGate = examAllowed && requireFullscreen && isFullscreen() !== true;
         els.fsGate.hidden = !needGate;
+        if (examAllowed) {
+            // Keep the iframe instance and its draft, while removing keyboard and pointer access.
+            els.exam.hidden = needGate;
+            if (els.completion) { els.completion.hidden = needGate; }
+        }
     }
 
     if (els.fsBtn) {
@@ -516,6 +532,7 @@
 
     function saveCompletion(type, statusEl) {
         if (completionPending || currentState !== 'running' || detached || !accessAllowed) { return; }
+        if (type === 'finish' && requireFullscreen && isFullscreen() !== true) { updateFullscreenGate(); return; }
         if (strengthened(cfg.state.tracking_mode) && clock() === null) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); return; }
         completionPending = true;
         els.finishBtn.disabled = true;

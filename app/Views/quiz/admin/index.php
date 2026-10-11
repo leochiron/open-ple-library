@@ -15,8 +15,9 @@ $old = $old ?? [];
 $oldVal = static function (string $key, string $default = '') use ($old): string {
     return htmlspecialchars((string)($old[$key] ?? $default), ENT_QUOTES, 'UTF-8');
 };
-$oldChecked = static function (string $key) use ($old): string {
-    return isset($old[$key]) ? ' checked' : '';
+$freshForm = $old === [];
+$oldChecked = static function (string $key) use ($old, $freshForm): string {
+    return isset($old[$key]) || ($freshForm && in_array($key, ['require_fullscreen', 'reload_is_incident', 'initial_browser_enabled'], true)) ? ' checked' : '';
 };
 
 $stateLabels = [
@@ -126,9 +127,10 @@ $stateLabels = [
                 <div class="quiz-admin-actions">
                     <button type="button" class="btn ghost" data-preset="souple"><?php echo htmlspecialchars($i18n->t('quiz.admin.preset_loose'), ENT_QUOTES, 'UTF-8'); ?></button>
                     <button type="button" class="btn ghost" data-preset="normal"><?php echo htmlspecialchars($i18n->t('quiz.admin.preset_normal'), ENT_QUOTES, 'UTF-8'); ?></button>
-                    <button type="button" class="btn ghost" data-preset="strict"><?php echo htmlspecialchars($i18n->t('quiz.admin.preset_strict'), ENT_QUOTES, 'UTF-8'); ?></button>
+                    <button type="button" class="btn <?php echo $freshForm ? 'primary' : 'ghost'; ?>" data-preset="strict" aria-pressed="<?php echo $freshForm ? 'true' : 'false'; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.preset_strict'), ENT_QUOTES, 'UTF-8'); ?></button>
                 </div>
                 <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.admin.presets_hint'), ENT_QUOTES, 'UTF-8'); ?></p>
+                <p class="quiz-hint"><?php echo htmlspecialchars($i18n->t('quiz.admin.strict_default'), ENT_QUOTES, 'UTF-8'); ?></p>
             </div>
             <div class="quiz-field">
                 <label for="qa-duration"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_duration'), ENT_QUOTES, 'UTF-8'); ?></label>
@@ -136,11 +138,11 @@ $stateLabels = [
             </div>
             <div class="quiz-field">
                 <label for="qa-max-incidents"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_max_incidents'), ENT_QUOTES, 'UTF-8'); ?></label>
-                <input type="number" id="qa-max-incidents" name="max_incidents" value="<?php echo $oldVal('max_incidents', '2'); ?>" min="1" max="20" class="quiz-input">
+                <input type="number" id="qa-max-incidents" name="max_incidents" value="<?php echo $oldVal('max_incidents', '1'); ?>" min="1" max="20" class="quiz-input">
             </div>
             <div class="quiz-field">
                 <label for="qa-min-away"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_min_away'), ENT_QUOTES, 'UTF-8'); ?></label>
-                <input type="number" id="qa-min-away" name="min_away_seconds" value="<?php echo $oldVal('min_away_seconds', '10'); ?>" min="1" max="300" class="quiz-input">
+                <input type="number" id="qa-min-away" name="min_away_seconds" value="<?php echo $oldVal('min_away_seconds', '5'); ?>" min="1" max="300" class="quiz-input">
             </div>
             <div class="quiz-field">
                 <label class="quiz-consent">
@@ -153,6 +155,15 @@ $stateLabels = [
                     <input type="checkbox" id="qa-reload" name="reload_is_incident"<?php echo $oldChecked('reload_is_incident'); ?>>
                     <span><?php echo htmlspecialchars($i18n->t('quiz.admin.field_reload'), ENT_QUOTES, 'UTF-8'); ?></span>
                 </label>
+            </div>
+            <div class="quiz-field quiz-field--full">
+                <label for="qa-initial-tracking"><?php echo htmlspecialchars($i18n->t('quiz.admin.initial_tracking'), ENT_QUOTES, 'UTF-8'); ?></label>
+                <select id="qa-initial-tracking" name="initial_tracking_mode" class="quiz-input">
+                    <?php foreach (['continuous', 'preflight', 'off'] as $initialMode): ?>
+                        <option value="<?php echo $initialMode; ?>"<?php echo ($old['initial_tracking_mode'] ?? 'continuous') === $initialMode ? ' selected' : ''; ?>><?php echo htmlspecialchars($i18n->t('quiz.tracking.' . $initialMode), ENT_QUOTES, 'UTF-8'); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <label class="quiz-consent"><input type="checkbox" id="qa-initial-browser" name="initial_browser_enabled"<?php echo $oldChecked('initial_browser_enabled'); ?>> <span><?php echo htmlspecialchars($i18n->t('quiz.admin.initial_browser'), ENT_QUOTES, 'UTF-8'); ?></span></label>
             </div>
             <div class="quiz-field quiz-field--full">
                 <label for="qa-roster"><?php echo htmlspecialchars($i18n->t('quiz.admin.field_roster'), ENT_QUOTES, 'UTF-8'); ?></label>
@@ -190,11 +201,17 @@ $stateLabels = [
             document.getElementById('qa-min-away').value = p.away;
             document.getElementById('qa-fullscreen').checked = p.fullscreen;
             document.getElementById('qa-reload').checked = p.reload;
+            document.getElementById('qa-initial-tracking').value = btn.dataset.preset === 'strict' ? 'continuous' : 'off';
+            document.getElementById('qa-initial-browser').checked = btn.dataset.preset === 'strict';
             document.querySelectorAll('[data-preset]').forEach(function (b) {
                 b.classList.toggle('primary', b === btn);
                 b.classList.toggle('ghost', b !== btn);
+                b.setAttribute('aria-pressed', String(b === btn));
             });
         });
+    });
+    document.getElementById('qa-initial-tracking').addEventListener('change', function () {
+        if (this.value === 'off') { document.getElementById('qa-initial-browser').checked = false; }
     });
 })();
 </script>

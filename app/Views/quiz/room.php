@@ -39,6 +39,7 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
     <div class="quiz-banner__left">
         <span class="quiz-banner__badge"><?php echo htmlspecialchars($i18n->t('quiz.room.monitored'), ENT_QUOTES, 'UTF-8'); ?></span>
         <span class="quiz-banner__student"><?php echo htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8'); ?></span>
+        <span id="quiz-strict-label" class="quiz-banner__mode"<?php echo empty($session['require_fullscreen']) ? ' hidden' : ''; ?>><?php echo htmlspecialchars($i18n->t('quiz.room.strict'), ENT_QUOTES, 'UTF-8'); ?></span>
     </div>
     <div class="quiz-banner__center">
         <span class="quiz-banner__timer" id="quiz-timer">--:--</span>
@@ -53,23 +54,32 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
 
 <main class="quiz-room__main">
     <p id="quiz-tracking-status" class="quiz-hint" role="status" hidden></p>
-    <section id="quiz-access-unavailable" class="quiz-panel" role="status"<?php echo ($state['access_allowed'] ?? true) ? ' hidden' : ''; ?>>
+    <div class="quiz-room__identity">
+        <h1 class="quiz-student-heading"><?php echo htmlspecialchars($session['title'], ENT_QUOTES, 'UTF-8'); ?></h1>
+        <p class="quiz-hint quiz-room__rules">
+            <span id="quiz-rule-duration_minutes"><?php echo (int)$session['duration_minutes']; ?></span> min
+            · <?php echo htmlspecialchars($i18n->t('quiz.admin.field_max_incidents'), ENT_QUOTES, 'UTF-8'); ?> : <span id="quiz-rule-max_incidents"><?php echo (int)$session['max_incidents']; ?></span>
+            · <?php echo htmlspecialchars($i18n->t('quiz.admin.field_min_away'), ENT_QUOTES, 'UTF-8'); ?> : <span id="quiz-rule-min_away_seconds"><?php echo (int)$session['min_away_seconds']; ?></span>s
+            <span id="quiz-rule-fullscreen"<?php echo empty($session['require_fullscreen']) ? ' hidden' : ''; ?>> · <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_fullscreen'), ENT_QUOTES, 'UTF-8'); ?></span>
+            <span id="quiz-rule-reload"<?php echo empty($session['reload_is_incident']) ? ' hidden' : ''; ?>> · <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_reload'), ENT_QUOTES, 'UTF-8'); ?></span>
+        </p>
+    </div>
+    <section id="quiz-access-unavailable" class="quiz-panel quiz-access-message" role="status"<?php echo ($state['access_allowed'] ?? true) ? ' hidden' : ''; ?>>
         <p><?php echo htmlspecialchars($i18n->t('quiz.journal.detached'), ENT_QUOTES, 'UTF-8'); ?></p>
     </section>
-    <section id="quiz-preflight" class="quiz-panel" hidden>
+    <section id="quiz-preflight" class="quiz-panel quiz-preparation" aria-labelledby="quiz-preflight-title" hidden>
+        <span class="quiz-preparation__eyebrow"><?php echo htmlspecialchars($i18n->t('quiz.preflight.eyebrow'), ENT_QUOTES, 'UTF-8'); ?></span>
+        <h2 id="quiz-preflight-title"><?php echo htmlspecialchars($i18n->t('quiz.preflight.title'), ENT_QUOTES, 'UTF-8'); ?></h2>
         <p><?php echo htmlspecialchars($i18n->t('quiz.preflight.steps'),ENT_QUOTES,'UTF-8'); ?></p>
-        <button type="button" id="quiz-preflight-enter" class="btn ghost"><?php echo htmlspecialchars($i18n->t('quiz.preflight.enter'),ENT_QUOTES,'UTF-8'); ?></button>
-        <button type="button" id="quiz-preflight-fullscreen" class="btn ghost" hidden><?php echo htmlspecialchars($i18n->t('quiz.preflight.fullscreen'),ENT_QUOTES,'UTF-8'); ?></button>
-        <button type="button" id="quiz-preflight-submit" class="btn primary"><?php echo htmlspecialchars($i18n->t('quiz.preflight.continue'),ENT_QUOTES,'UTF-8'); ?></button>
+        <ol class="quiz-preparation__steps">
+            <li id="quiz-preflight-step-enter" data-done="false"><span><?php echo htmlspecialchars($i18n->t('quiz.preflight.step_enter'), ENT_QUOTES, 'UTF-8'); ?></span><button type="button" id="quiz-preflight-enter" class="quiz-room-button quiz-room-button--secondary" disabled><?php echo htmlspecialchars($i18n->t('quiz.preflight.enter'),ENT_QUOTES,'UTF-8'); ?></button></li>
+            <li id="quiz-preflight-step-return" data-done="false"><span><?php echo htmlspecialchars($i18n->t('quiz.preflight.step_return'), ENT_QUOTES, 'UTF-8'); ?></span></li>
+            <li id="quiz-preflight-step-fullscreen" data-done="false" hidden><span><?php echo htmlspecialchars($i18n->t('quiz.preflight.step_fullscreen'), ENT_QUOTES, 'UTF-8'); ?></span><button type="button" id="quiz-preflight-fullscreen" class="quiz-room-button quiz-room-button--secondary" hidden disabled><?php echo htmlspecialchars($i18n->t('quiz.preflight.fullscreen'),ENT_QUOTES,'UTF-8'); ?></button></li>
+        </ol>
+        <p id="quiz-preflight-status" class="quiz-preparation__status" role="status" aria-live="polite"></p>
+        <p id="quiz-preflight-remaining" class="quiz-preparation__remaining" hidden></p>
+        <button type="button" id="quiz-preflight-submit" class="quiz-room-button"><?php echo htmlspecialchars($i18n->t('quiz.preflight.start'),ENT_QUOTES,'UTF-8'); ?></button>
     </section>
-    <h2 class="quiz-student-heading"><?php echo htmlspecialchars($studentName, ENT_QUOTES, 'UTF-8'); ?></h2>
-    <p class="quiz-hint">
-        <span id="quiz-rule-duration_minutes"><?php echo (int)$session['duration_minutes']; ?></span> min
-        · <?php echo htmlspecialchars($i18n->t('quiz.admin.field_max_incidents'), ENT_QUOTES, 'UTF-8'); ?> : <span id="quiz-rule-max_incidents"><?php echo (int)$session['max_incidents']; ?></span>
-        · <?php echo htmlspecialchars($i18n->t('quiz.admin.field_min_away'), ENT_QUOTES, 'UTF-8'); ?> : <span id="quiz-rule-min_away_seconds"><?php echo (int)$session['min_away_seconds']; ?></span>s
-        <span id="quiz-rule-fullscreen"<?php echo empty($session['require_fullscreen']) ? ' hidden' : ''; ?>> · <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_fullscreen'), ENT_QUOTES, 'UTF-8'); ?></span>
-        <span id="quiz-rule-reload"<?php echo empty($session['reload_is_incident']) ? ' hidden' : ''; ?>> · <?php echo htmlspecialchars($i18n->t('quiz.admin.rule_reload'), ENT_QUOTES, 'UTF-8'); ?></span>
-    </p>
 
     <!-- Lobby: waiting for teacher launch -->
     <section id="quiz-lobby" class="quiz-panel" hidden>
@@ -132,7 +142,7 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
     </div>
 
     <!-- Away warning shown on return after an absence -->
-    <div id="quiz-away-warning" class="quiz-away-warning" hidden>
+    <div id="quiz-away-warning" class="quiz-away-warning" role="status" aria-live="polite" hidden>
         <p id="quiz-away-warning-text"></p>
     </div>
 
@@ -165,12 +175,30 @@ $cssVersion = is_file($cssVersionPath) ? filemtime($cssVersionPath) : time();
         finished: <?php echo !empty($attempt['finished_at']) ? 'true' : 'false'; ?>,
         i18n: {
             incidentWarning: <?php echo json_encode($i18n->t('quiz.room.incident_warning')); ?>,
+            exitDetected: <?php echo json_encode($i18n->t('quiz.room.exit_detected')); ?>,
+            exitReturned: <?php echo json_encode($i18n->t('quiz.room.exit_returned')); ?>,
+            exitRecorded: <?php echo json_encode($i18n->t('quiz.room.exit_recorded')); ?>,
             awayWarning: <?php echo json_encode($i18n->t('quiz.room.away_warning')); ?>,
             keyWarning: <?php echo json_encode($i18n->t('quiz.room.key_warning')); ?>,
             finishConfirm: <?php echo json_encode($i18n->t('quiz.room.finish_confirm')); ?>,
             finishPending: <?php echo json_encode($i18n->t('quiz.room.finish_pending')); ?>,
             finishError: <?php echo json_encode($i18n->t('quiz.room.finish_error')); ?>,
-            trackingDetached: <?php echo json_encode($i18n->t('quiz.journal.detached')); ?>
+            trackingDetached: <?php echo json_encode($i18n->t('quiz.journal.detached')); ?>,
+            prepareStart: <?php echo json_encode($i18n->t('quiz.preflight.start')); ?>,
+            prepareEnterPrompt: <?php echo json_encode($i18n->t('quiz.preflight.enter')); ?>,
+            prepareEnterDetected: <?php echo json_encode($i18n->t('quiz.preflight.enter_detected')); ?>,
+            prepareValidate: <?php echo json_encode($i18n->t('quiz.preflight.validate')); ?>,
+            prepareRetry: <?php echo json_encode($i18n->t('quiz.preflight.retry')); ?>,
+            prepareWorking: <?php echo json_encode($i18n->t('quiz.preflight.working')); ?>,
+            prepareIdle: <?php echo json_encode($i18n->t('quiz.preflight.idle')); ?>,
+            prepareCollecting: <?php echo json_encode($i18n->t('quiz.preflight.collecting')); ?>,
+            prepareReady: <?php echo json_encode($i18n->t('quiz.preflight.ready')); ?>,
+            prepareExpired: <?php echo json_encode($i18n->t('quiz.preflight.expired')); ?>,
+            prepareNetworkError: <?php echo json_encode($i18n->t('quiz.preflight.network_error')); ?>,
+            prepareRefused: <?php echo json_encode($i18n->t('quiz.preflight.refused')); ?>,
+            prepareRemaining: <?php echo json_encode($i18n->t('quiz.preflight.remaining')); ?>,
+            prepareExitFullscreen: <?php echo json_encode($i18n->t('quiz.preflight.exit_fullscreen')); ?>,
+            prepareEnterFullscreen: <?php echo json_encode($i18n->t('quiz.room.fullscreen_button')); ?>
         }
     };
 </script>

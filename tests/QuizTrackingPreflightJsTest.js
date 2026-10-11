@@ -6,7 +6,7 @@ const path = require('node:path');
 const { harness, render, inlineScripts, state, flush, root } = require('./QuizLiveSettingsJsTest');
 const source = name => fs.readFileSync(path.join(root, 'public/assets/js', name), 'utf8');
 
-function setup(overrides = {}, monitor = true, configure = null) {
+function setup(overrides = {}, monitor = true, configure = null, autoStart = true) {
     const initial = state({ tracking_mode: 'preflight', settings_revision: 1, access_allowed: false, access_until: null, require_fullscreen: false, ...overrides });
     if (!initial.access_allowed) { delete initial.form_url; }
     const h = harness(render('room'), initial);
@@ -33,6 +33,8 @@ function setup(overrides = {}, monitor = true, configure = null) {
     let preflight;
     if (monitor) { h.run(source('quiz-monitor.js')); }
     else { preflight = h.window.QuizTrackingPreflight({ config: cfg }); preflight.update(initial); }
+    // Existing protocol tests explicitly start preparation; dedicated UX tests leave it idle.
+    if (autoStart) { h.elements.get('quiz-preflight-submit').emit('click', { isTrusted: true }); }
     return { ...h, cfg, diagnostics, challenges, preflight,
         blockProbe: () => { listenerBlocked = true; },
         result: (value, delay = 0) => { result = value; resultDelay = delay; h.setState(value); },
@@ -108,6 +110,7 @@ async function oldEpisodeAndGuard() {
     const departure = h.events[0]; assert.equal(departure.type, 'away_start');
     const pending = state({ tracking_mode: 'preflight', settings_revision: 1, access_allowed: false, access_until: null, require_fullscreen: false }); delete pending.form_url;
     h.setState(pending); await h.tick(15000); await flush();
+    h.submit(); await flush(); // Start the now-explicit preparation after the mode change.
     h.advance(12000); h.visible(true); await flush();
     const returned = h.events.find(event => event.type === 'hidden');
     assert.equal(returned.related_event_uid, departure.event_uid, 'An ordinary episode opened before preparation closes on its real return');
@@ -119,9 +122,9 @@ async function oldEpisodeAndGuard() {
     h.jumpClock(-86400000); h.advance(53499); await h.tick(500);
     assert.equal(h.elements.get('quiz-access-unavailable').hidden, true, 'Monotone guard valid before network/quantization/tick-adjusted deadline');
     h.advance(1); await h.tick(500);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Permission expires at60s including measured network delay, despite wall-clock change');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'Permission expires at60s including measured network delay, despite wall-clock change');
     const oldOff = state({ tracking_mode: 'off', settings_revision: 0, access_allowed: true }); h.setState(oldOff); await h.tick(3000);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Stale off response cannot clear a known preflight suspension');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'Stale off response cannot clear a known preflight suspension');
     assert.equal(h.elements.get('quiz-iframe-wrap').children[0], original);
     assert.equal(h.storage.size > 0, true, 'Ordinary journal storage still exists');
     for (const raw of h.storage.values()) { assert.equal(raw.includes(h.cfg.roomEpoch), false, 'Document epoch remains transport-only'); }
@@ -131,6 +134,7 @@ async function lobbyGeneration() {
     const h = setup({ state: 'lobby' }); await flush(); assert.equal(h.challenges.length, 0);
     const launched = state({ tracking_mode: 'preflight', settings_revision: 1, tracking_generation: 'b'.repeat(32), access_allowed: false, require_fullscreen: false }); delete launched.form_url;
     h.setState(launched); await h.tick(3000); await flush();
+    h.submit(); await flush(); // The learner starts preparation after seeing the launched quiz.
     assert.equal(h.challenges[0].tracking_generation, 'b'.repeat(32), 'Lobby document challenges the newly adopted generation');
     assert.equal(h.challenges[0].room_epoch, 'e'.repeat(32), 'Document epoch stays stable across launch');
     h.setState({ ...launched, state: 'lobby' }); await h.tick(3000);
@@ -147,7 +151,7 @@ async function staleDiagnosticReply() {
     const denied = { ...positive, access_allowed: false, access_until: null }; delete denied.form_url;
     h.setState(denied); await h.tick(3000);
     resolve({ ok: true, json: async () => positive }); await flush();
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'A delayed positive preflight cannot override a newer denial at the same revision');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'A delayed positive preflight cannot override a newer denial at the same revision');
     assert.equal(h.elements.get('quiz-iframe-wrap').children.length, 0, 'Stale permission never creates an iframe');
     h.setState(positive); await h.tick(3000);
     assert.equal(h.elements.get('quiz-access-unavailable').hidden, true, 'A genuinely fresh state decision can recover');
@@ -163,14 +167,14 @@ async function completionLeaseAndOrder() {
     const resume = h.events.at(-1);
     resolve({ ok: true, json: async () => ({ event_uid: resume.event_uid, attempt_id: 1, finished: false, access_allowed: true }) }); await flush();
     h.setStateStatus(503); h.advance(10000); await h.tick(500);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Resume ACK without timing retains the original lease and expires at60 with network unavailable');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'Resume ACK without timing retains the original lease and expires at60 with network unavailable');
 
     const late = setup({ finished: true }); await flush(); late.result({ ...allowed, server_now: late.cfg.state.server_now, access_until: late.cfg.state.server_now + 60 }); late.submit(); await flush();
     late.setCompletion(new Promise(done => { resolve = done; })); late.elements.get('quiz-resume-btn').emit('click'); await flush();
     const oldResume = late.events.at(-1), denied = { ...allowed, access_allowed: false, access_until: null }; delete denied.form_url;
     late.setState(denied); await late.tick(3000);
     resolve({ ok: true, json: async () => ({ event_uid: oldResume.event_uid, attempt_id: 1, finished: false, access_allowed: true }) }); await flush();
-    assert.equal(late.elements.get('quiz-access-unavailable').hidden, false, 'An older successful resume cannot re-admit after a newer denial');
+    assert.equal(late.elements.get('quiz-access-unavailable').hidden && late.elements.get('quiz-preflight').hidden, false, 'An older successful resume cannot re-admit after a newer denial');
     late.setState({ ...allowed, access_allowed: true, finished: true }); await late.tick(3000);
     assert.equal(late.elements.get('quiz-finished').hidden, false, 'A stale resume did not overwrite the newer declared-finish state');
 }

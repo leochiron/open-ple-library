@@ -99,11 +99,19 @@ class QuizService
         }
 
         $this->validateRosterEmails($rosterText);
+        // Only the new creation form opts into strengthened tracking. Legacy callers remain historical.
+        $initialMode = $data['initial_tracking_mode'] ?? 'off';
+        if (!is_string($initialMode) || !in_array($initialMode, ['off', 'preflight', 'continuous'], true)) {
+            throw new RuntimeException('invalid_tracking_mode');
+        }
+        $initialBrowser = isset($data['initial_browser_enabled']);
+        if ($initialBrowser && $initialMode === 'off') { throw new RuntimeException('browser_requires_tracking'); }
         $slug = $this->generateSlug($title);
-
+        $this->db->beginTransaction();
+        try {
         $stmt = $this->db->prepare(
-            'INSERT INTO quiz_sessions (owner_admin_id, slug, title, google_form_url, google_form_edit_url, attempt_entry_id, duration_minutes, max_incidents, min_away_seconds, require_fullscreen, reload_is_incident, state, tracking_generation)
-             VALUES (:owner, :slug, :title, :url, :edit_url, :entry, :duration, :max_incidents, :min_away, :fullscreen, :reload, :state, :generation)'
+            'INSERT INTO quiz_sessions (owner_admin_id, slug, title, google_form_url, google_form_edit_url, attempt_entry_id, duration_minutes, max_incidents, min_away_seconds, require_fullscreen, reload_is_incident, state, tracking_generation, tracking_mode, browser_enabled)
+             VALUES (:owner, :slug, :title, :url, :edit_url, :entry, :duration, :max_incidents, :min_away, :fullscreen, :reload, :state, :generation, :tracking, :browser)'
         );
         $stmt->execute([
             'owner' => $ownerId,
@@ -119,12 +127,25 @@ class QuizService
             'reload' => isset($data['reload_is_incident']) ? 1 : 0,
             'state' => 'armed',
             'generation' => bin2hex(random_bytes(16)),
+            'tracking' => $initialMode,
+            'browser' => (int)$initialBrowser,
         ]);
 
         $sessionId = (int)$this->db->lastInsertId();
         $imported = $this->importRoster($sessionId, $rosterText);
-
+        if (isset($data['initial_tracking_mode'])) {
+            $this->appendAudit($sessionId, 'created', [], [
+                'tracking_mode' => $initialMode, 'browser_enabled' => $initialBrowser,
+                'require_fullscreen' => isset($data['require_fullscreen']), 'reload_is_incident' => isset($data['reload_is_incident']),
+                'max_incidents' => max(1, (int)($data['max_incidents'] ?? 2)), 'min_away_seconds' => max(1, (int)($data['min_away_seconds'] ?? 10)),
+            ]);
+        }
+        $this->db->commit();
         return ['id' => $sessionId, 'slug' => $slug, 'students' => $imported];
+        } catch (\Throwable $exception) {
+            if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            throw $exception;
+        }
     }
 
     /**

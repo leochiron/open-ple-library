@@ -35,7 +35,7 @@ async function stableCadenceAndFreshProbe() {
     assert.deepEqual(h.pulses[0].checks, { listener_roundtrip: true, fullscreen_active: false }, 'Pulse submits exactly two boolean facts');
     h.blockProbe(); h.setPulseAllowed(false); await h.tick(15000); await h.tick(20000); await flush();
     assert.equal(h.pulses[1].checks.listener_roundtrip, false, 'Methods modified after admission are probed anew');
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Failed decision suspends same form');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'Failed decision suspends same form');
     assert.equal(h.elements.get('quiz-iframe-wrap').children[0], form); assert.equal(form.answer, 'Private draft');
     assert.equal(h.events.length, 0, 'Isolated keydown never enters ordinary journal');
     h.setPulseAllowed(true); await h.tick(20000); await flush();
@@ -79,10 +79,10 @@ async function stalePulseAndExpiry() {
     let resolve; h.setPulseReply(new Promise(done => { resolve = done; })); await h.tick(20000); await flush();
     const denied = { ...allowed, access_allowed: false, access_until: null }; delete denied.form_url; h.setState(denied); await h.tick(3000);
     resolve({ ok: true, json: async () => allowed }); await flush();
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Older pulse result cannot erase newer denial at the same revision');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'Older pulse result cannot erase newer denial at the same revision');
     h.setState(allowed); await h.tick(3000); h.setStateStatus(503); h.setPulseReply(Promise.resolve({ ok: false, status: 503, json: async () => ({ error: 'access_unavailable' }) }));
     h.advance(60000); await h.tick(500);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Network failure cannot silently extend the local sixty-second lease');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'Network failure cannot silently extend the local sixty-second lease');
     assert.equal(h.elements.get('quiz-iframe-wrap').children.length, 1, 'Guard keeps iframe rather than destroying it');
 }
 
@@ -94,7 +94,7 @@ async function integerServerClockGuard() {
         server_now: h.cfg.state.server_now, access_until: h.cfg.state.server_now + 60, require_fullscreen: false }), 20);
     h.submit(); await flush(); h.setStateStatus(503);
     h.advance(58499); await h.tick(500);
-    assert.equal(h.elements.get('quiz-access-unavailable').hidden, false, 'Integer clock uncertainty and guard cadence cannot extend permission beyond server expiry');
+    assert.equal(h.elements.get('quiz-access-unavailable').hidden && h.elements.get('quiz-preflight').hidden, false, 'Integer clock uncertainty and guard cadence cannot extend permission beyond server expiry');
     assert.equal(h.elements.get('quiz-iframe-wrap').children.length, 1, 'Conservative guard preserves the form instance');
 }
 
