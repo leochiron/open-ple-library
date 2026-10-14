@@ -260,7 +260,7 @@ $sid = (int)$session['id'];
                     <?php foreach ($recentEvents as $e): ?>
                         <tr class="<?php echo ((int)$e['is_incident'] === 1 && empty($e['excused'])) ? 'quiz-row--alert' : ''; ?>">
                             <td><?php echo htmlspecialchars($e['first_name'] . ' ' . $e['last_name'], ENT_QUOTES, 'UTF-8'); ?></td>
-                            <td><?php echo htmlspecialchars(quizEventLabel($e, $i18n), ENT_QUOTES, 'UTF-8'); ?><?php echo ((int)$e['is_incident'] === 1) ? ' ⚠️' : ''; ?></td>
+                            <td><?php echo htmlspecialchars(quizEventLabel($e, $i18n), ENT_QUOTES, 'UTF-8'); ?><?php echo !empty($e['excused']) ? ' ' . htmlspecialchars($i18n->t('quiz.admin.excused_label'), ENT_QUOTES, 'UTF-8') : (((int)$e['is_incident'] === 1) ? ' ⚠️' : ''); ?></td>
                             <td><?php echo htmlspecialchars(quizEventDuration($e), ENT_QUOTES, 'UTF-8'); ?></td>
                             <td><?php echo htmlspecialchars(formatParisTime($e['created_at']), ENT_QUOTES, 'UTF-8'); ?></td>
                         </tr>
@@ -406,7 +406,15 @@ $sid = (int)$session['id'];
                                 <td data-role="events"><?php echo (int)$a['event_count']; ?></td>
                                 <td data-role="incidents"><?php echo (int)$a['incident_count']; ?> / <?php echo $maxIncidents; ?></td>
                                 <td data-role="status"><span class="quiz-status--<?php echo htmlspecialchars($a['status'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($a['status'], ENT_QUOTES, 'UTF-8'); ?></span></td>
-                                <td data-role="action"><a class="btn ghost" href="/quiz-admin/attempt?id=<?php echo (int)$a['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.view_detail'), ENT_QUOTES, 'UTF-8'); ?></a></td>
+                                <td data-role="action">
+                                    <a class="btn ghost" href="/quiz-admin/attempt?id=<?php echo (int)$a['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.view_detail'), ENT_QUOTES, 'UTF-8'); ?></a>
+                                    <form method="post" action="/quiz-admin/attempt/excuse-all">
+                                        <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
+                                        <input type="hidden" name="attempt_id" value="<?php echo (int)$a['id']; ?>">
+                                        <input type="hidden" name="return_to" value="session">
+                                        <button type="submit" class="btn ghost"<?php echo (int)$a['incident_count'] === 0 ? ' disabled' : ''; ?>><?php echo htmlspecialchars($i18n->t('quiz.admin.clear_alerts'), ENT_QUOTES, 'UTF-8'); ?></button>
+                                    </form>
+                                </td>
                             <?php endif; ?>
                         </tr>
                     <?php endforeach; ?>
@@ -434,6 +442,16 @@ $sid = (int)$session['id'];
 
     var finishedBadge = <?php echo json_encode('✅ ' . $i18n->t('quiz.admin.finished_badge')); ?>;
     var viewDetailLabel = <?php echo json_encode($i18n->t('quiz.admin.view_detail')); ?>;
+    var clearAlertsLabel = <?php echo json_encode($i18n->t('quiz.admin.clear_alerts')); ?>;
+    var csrfToken = <?php echo json_encode($csrfToken); ?>;
+    function attemptActions(a) {
+        var id = Number(a.attempt_id);
+        if (!Number.isSafeInteger(id) || id <= 0) { return ''; }
+        return '<a class="btn ghost" href="/quiz-admin/attempt?id=' + id + '">' + esc(viewDetailLabel) + '</a>'
+            + '<form method="post" action="/quiz-admin/attempt/excuse-all"><input type="hidden" name="_csrf" value="' + esc(csrfToken) + '">'
+            + '<input type="hidden" name="attempt_id" value="' + id + '"><input type="hidden" name="return_to" value="session">'
+            + '<button class="btn ghost" type="submit"' + (a.incident_count > 0 ? '' : ' disabled') + '>' + esc(clearAlertsLabel) + '</button></form>';
+    }
     var blockedLabel = <?php echo json_encode($i18n->t('quiz.access.blocked')); ?>;
     function accessLabel(a) {
         var context = a.access_context;
@@ -463,8 +481,9 @@ $sid = (int)$session['id'];
             status.innerHTML = '<span class="quiz-status--' + esc(a.status) + '">' + esc(a.status) + '</span>' + accessLabel(a);
         }
         var action = row.querySelector('[data-role="action"]');
-        if (action && !action.firstChild) {
-            action.innerHTML = '<a class="btn ghost" href="/quiz-admin/attempt?id=' + a.attempt_id + '">' + esc(viewDetailLabel) + '</a>';
+        if (action) {
+            var actions = attemptActions(a);
+            if (action.innerHTML !== actions) { action.innerHTML = actions; }
         }
     }
 
@@ -568,7 +587,7 @@ $sid = (int)$session['id'];
                     var tr = document.createElement('tr');
                     if (e.is_incident && !e.excused) { tr.className = 'quiz-row--alert'; }
                     tr.innerHTML = '<td>' + esc(e.first_name + ' ' + e.last_name) + '</td>'
-                        + '<td>' + esc(e.event_label || e.event_type) + (e.is_incident ? ' ⚠️' : '') + '</td>'
+                        + '<td>' + esc(e.event_label || e.event_type) + (e.excused ? ' ' + esc(<?php echo json_encode($i18n->t('quiz.admin.excused_label')); ?>) : (e.is_incident ? ' ⚠️' : '')) + '</td>'
                         + '<td>' + esc(e.duration_label || (e.away_seconds + ' s')) + '</td>'
                         + '<td>' + esc(e.date) + '</td>';
                     tbody.insertBefore(tr, tbody.firstChild);

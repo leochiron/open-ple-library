@@ -216,7 +216,7 @@ class QuizController
         }
 
         if(QuizService::trackingStrengthened($session['tracking_mode']) && !in_array($type,['finish','resume'],true)){
-            $result=array_intersect_key($result,array_fill_keys(['event_uid','attempt_id','incident_count','status','is_incident','settings_revision'],true));
+            $result=array_intersect_key($result,array_fill_keys(['event_uid','attempt_id','incident_count','status','is_incident','preparation_event','settings_revision'],true));
         }
         $this->json($result);
     }

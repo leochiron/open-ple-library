@@ -29,6 +29,8 @@
     var timeoverShown = false;
     var finished = !!cfg.finished; // student declared they are done: monitoring stops
     var completionPending = false; // wait for the server acknowledgement
+    var completionRetryPayload = null;
+    var completionRecorded = cfg.state.completion_recorded === true;
     var detached = false;
     var accessAllowed = cfg.state.access_allowed !== false;
     var pollSequence = 0;
@@ -85,6 +87,7 @@
         getRoomEpoch: function () { return cfg.roomEpoch; },
         onAck: function (result, event) {
             updateIncidents(result.incident_count, result.status);
+            if (result.preparation_event) { return; }
             if (result.access_allowed === false) { ++pollSequence; applyState({ state: currentState, access_allowed: false }); }
             var seconds = event.duration_ms === undefined ? 0 : Math.round(event.duration_ms / 100) / 10;
             if (result.is_incident) { showAwayWarning(cfg.i18n.incidentWarning.replace('{seconds}', String(seconds))); }
@@ -109,6 +112,9 @@
         isFinished: function () { return finished; },
         isCompletionPending: function () { return completionPending; },
         isDetached: function () { return detached; },
+        onPreparationStart: function () {
+            hide(els.awayWarning);
+        },
         onDecisionRequest: function () { return ++pollSequence; },
         onState: function (state, elapsed, sequence) {
             if (sequence !== pollSequence) { return false; }
@@ -158,7 +164,9 @@
         }
         if (typeof state.finished === 'boolean' && !completionPending) {
             finished = state.finished;
+            if (!finished) { completionRecorded = false; }
         }
+        if (typeof state.completion_recorded === 'boolean') { completionRecorded = state.completion_recorded; }
 
         currentState = state.state;
         if (finished) { hide(els.timeover); timeoverShown = false; }
@@ -176,6 +184,13 @@
         if (!accessAllowed) {
             [els.lobby, els.exam, els.closed, els.finished, els.completion, els.fsGate, els.timeover].forEach(hide);
             timeoverShown = false;
+            if (finished && completionRecorded && currentState === 'running') {
+                hide(els.accessUnavailable);
+                show(els.finished);
+                els.resumeBtn.hidden = false;
+                els.resumeBtn.disabled = true;
+                return;
+            }
             if (preflight && preflight.visible()) { hide(els.accessUnavailable); } else { show(els.accessUnavailable); }
             if (els.finishBtn) { els.finishBtn.disabled = true; els.resumeBtn.disabled = true; }
             return;
@@ -280,7 +295,9 @@
 
     function poll() {
         if (detached) { return; }
-        var sequence = ++pollSequence;
+        // Keep checking teacher denials while a mutation is pending. An ordinary
+        // authorized poll must not supersede that mutation's acknowledgement.
+        var sequence = completionPending ? pollSequence : ++pollSequence;
         var started = clock();
         request(boundUrl(cfg.endpoints.state), { credentials: 'same-origin' })
             .then(function (result) {
@@ -291,6 +308,7 @@
             })
             .then(function (state) {
                 if (sequence === pollSequence && state && state.state) {
+                    if (completionPending && state.access_allowed === false) { ++pollSequence; }
                     applyState(state, elapsed(started));
                 }
             })
@@ -442,6 +460,7 @@
     var keyThrottle = {};
 
     function reportKey(type) {
+        if (detached || (preflight && !preflight.captureAllowed('shortcut'))) { return; }
         var now = Date.now();
         if (keyThrottle[type] && now - keyThrottle[type] < 5000) {
             return; // one report per type per 5s, no event spam
@@ -541,7 +560,10 @@
         els.finishBtn.disabled = true;
         els.resumeBtn.disabled = true;
         statusEl.textContent = cfg.i18n.finishPending;
-        var completionPayload = journal.explicitPayload(type, 'page');
+        if (!completionRetryPayload || completionRetryPayload.type !== type || completionRetryPayload.tracking_generation !== cfg.state.tracking_generation) {
+            completionRetryPayload = journal.explicitPayload(type, 'page');
+        }
+        var completionPayload = completionRetryPayload;
         var strengthenedCompletion = strengthened(cfg.state.tracking_mode);
         var sequence = ++pollSequence;
         request(boundUrl(cfg.endpoints.event), {
@@ -574,16 +596,19 @@
             }
             finished = result.finished;
             completionPending = false;
+            completionRetryPayload = null;
             journal.discard();
             statusEl.textContent = '';
             if (finished && isFullscreen()) {
                 try { var exitFn = document.exitFullscreen || document.webkitExitFullscreen; if (exitFn) { var exitPromise = exitFn.call(document); if (exitPromise && exitPromise.catch) { exitPromise.catch(function () {}); } } } catch (ignored) {}
             }
             if (!finished) { els.submitConfirm.checked = false; }
-            applyState({ state: currentState });
+            applyState({ state: currentState, finished: finished, completion_recorded: finished });
         }).catch(function () {
             completionPending = false;
             statusEl.textContent = accessAllowed ? cfg.i18n.finishError : '';
+            // A timeout can hide a successful write; reconcile before asking for another declaration.
+            poll();
         }).finally(function () {
             els.finishBtn.disabled = !accessAllowed || completionPending || !els.submitConfirm.checked;
             els.resumeBtn.disabled = !accessAllowed || completionPending;

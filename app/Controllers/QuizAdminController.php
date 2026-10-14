@@ -491,8 +491,9 @@ class QuizAdminController
     private function excuseAttempt(): void
     {
         $attemptId = (int)($_POST['attempt_id'] ?? 0);
-        $this->quiz->excuseAttempt($attemptId);
-        header('Location: /quiz-admin/attempt?id=' . $attemptId);
+        $sessionId = $this->quiz->excuseAttempt($attemptId);
+        header('Location: ' . (($_POST['return_to'] ?? '') === 'session' && $sessionId !== null
+            ? '/quiz-admin/session?id=' . $sessionId : '/quiz-admin/attempt?id=' . $attemptId));
         exit;
     }
 
