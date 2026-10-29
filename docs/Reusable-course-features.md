@@ -78,3 +78,12 @@ Private branding may define `redirects` as a list of `{from,to,prefix,status}`. 
 ## Verification
 
 Run PHP tests under `tests/*Test.php`, the two `assessment-review-*-test.php` scripts, JavaScript `tests/*Test.js`, and `python tests/AssessmentRoutesTest.py`. Tests use synthetic definitions and temporary storage. Check the Git index before committing: no `content/`, private branding, runtime records, database or credentials should be added. An independent deployment must keep its identity and data when receiving shared code.
+
+## Branded compact header
+
+The compact header also accepts `header_style: branded`, `header_logo_separator`,
+an optional `header_subtitle`, and a private `header_palette` with hex colors for
+`background`, `foreground`, `accent`, `accent-text`, and `subtitle`. Defaults keep
+the plain compact header. This variant uses a 40 px hostname, wraps its actions
+on small screens, and keeps the logo separator within the existing brand gap.
+Deployment colors and school identities stay out of the shared source.

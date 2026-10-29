@@ -158,6 +158,9 @@ if ($headerBrandMode === 'auto') {
     </style>
     <link rel="stylesheet" href="<?php echo htmlspecialchars($cssHref, ENT_QUOTES, 'UTF-8'); ?>">
     <link rel="stylesheet" href="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/css/course-tools.css?v=<?php echo (int)filemtime(dirname(__DIR__, 2) . '/public/assets/css/course-tools.css'); ?>">
+    <?php if (($config['branding']['header_layout'] ?? 'classic') === 'compact'): ?>
+    <link rel="stylesheet" href="<?= htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8') ?>/css/compact-header.css?v=<?= (int)filemtime(dirname(__DIR__, 2) . '/public/assets/css/compact-header.css') ?>">
+    <?php endif; ?>
     <script src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/js/student-tools.js?v=<?php echo (int)filemtime(dirname(__DIR__, 2) . '/public/assets/js/student-tools.js'); ?>" defer></script>
 </head>
 <body>

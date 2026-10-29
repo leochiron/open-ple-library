@@ -33,6 +33,10 @@ return [
     'display_site_address' => false,
     'show_student_quiz_link' => true,
     'header_layout' => 'classic', // classic | compact (one row, prominent public hostname)
+    'header_style' => 'plain', // plain | branded (contrasting header surface)
+    'header_logo_separator' => false,
+    'header_subtitle' => null, // null uses site_logo_text
+    'header_palette' => [], // background, foreground, accent, accent-text, subtitle: hex colors
     'show_language_switcher' => true, // Also hidden automatically when only one language is enabled.
     'portal_only_paths' => [], // Hide the file listing on explicitly selected portal paths.
     'redirects' => [], // Private compatibility aliases; see docs/Reusable-course-features.md.

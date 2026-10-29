@@ -1,11 +1,27 @@
-<?php declare(strict_types=1); ?>
-<header class="compact-header">
+<?php
+declare(strict_types=1);
+$branding = $config['branding'];
+$escapeTool = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+$displayHost = parse_url((string)($config['public_base_url'] ?? ''), PHP_URL_HOST) ?: '';
+$showContact = !empty($branding['student_contact_email']) && filter_var($branding['student_contact_email'], FILTER_VALIDATE_EMAIL);
+$showQuiz = $showQuiz ?? (($branding['show_student_quiz_link'] ?? true) && ($branding['quiz']['enabled'] ?? true));
+$brandedHeader = ($branding['header_style'] ?? 'plain') === 'branded';
+$headerClasses = 'compact-header' . ($brandedHeader ? ' compact-header--branded' : '') . (!empty($branding['header_logo_separator']) && $showLogo ? ' compact-header--separated' : '');
+$headerPalette = $branding['header_palette'] ?? [];
+$headerStyle = '';
+foreach (['background', 'foreground', 'accent', 'accent-text', 'subtitle'] as $token) {
+    if (isset($headerPalette[$token]) && preg_match('/^#[0-9a-fA-F]{3,8}$/D', (string)$headerPalette[$token])) {
+        $headerStyle .= '--compact-' . $token . ':' . $headerPalette[$token] . ';';
+    }
+}
+?>
+<header class="<?= $escapeTool($headerClasses) ?>"<?= $headerStyle !== '' ? ' style="' . $escapeTool($headerStyle) . '"' : '' ?>>
     <div class="compact-header__inner">
         <a class="compact-header__brand" href="<?= htmlspecialchars(buildUrl(['path' => '']), ENT_QUOTES, 'UTF-8') ?>">
             <?php if ($showLogo): ?><img class="compact-header__logo" src="<?= $escapeTool($logoSrc) ?>" alt="<?= $escapeTool($config['app_name']) ?>"><?php endif; ?>
             <span class="compact-header__identity">
                 <span class="compact-header__url"><?= $escapeTool($displayHost !== '' ? $displayHost : $brandText) ?></span>
-                <?php if ($showText && $displayHost !== ''): ?><span class="compact-header__title"><?= $escapeTool($brandText) ?></span><?php endif; ?>
+                <?php if ($showText && $displayHost !== ''): ?><span class="compact-header__title"><?= $escapeTool((string)($branding['header_subtitle'] ?? $brandText)) ?></span><?php endif; ?>
             </span>
         </a>
         <nav class="compact-header__actions" aria-label="Accès utiles">
