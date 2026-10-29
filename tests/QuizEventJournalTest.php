@@ -30,7 +30,7 @@ try {
     $legacy = $db->query('SELECT * FROM quiz_events ORDER BY id')->fetchAll();
     // Reconstruct the pre-journal schema, then run the real additive upgrader.
     $db->exec('DROP INDEX idx_quiz_events_uid'); $db->exec('DROP INDEX idx_quiz_events_absence');
-    foreach (['event_uid', 'absence_uid', 'source', 'related_event_uid', 'tracking_generation', 'duration_ms', 'dropped_events'] as $column) {
+    foreach (['event_uid', 'absence_uid', 'source', 'related_event_uid', 'tracking_generation', 'duration_ms', 'dropped_events', 'preparation_event'] as $column) {
         $db->exec('ALTER TABLE quiz_events DROP COLUMN ' . $column);
     }
     $db->exec('ALTER TABLE quiz_sessions DROP COLUMN tracking_generation');

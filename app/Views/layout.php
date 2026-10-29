@@ -26,6 +26,8 @@ $cssHref = $assetBase . '/css/main.css?v=' . $cssVersion;
 $styleDebug = isset($_GET['style_debug']) && (string)$_GET['style_debug'] === '1';
 $seoIndexable = isset($seoIndexable) && $seoIndexable === true;
 $canonicalUrl = isset($canonicalUrl) && is_string($canonicalUrl) && $canonicalUrl !== '' ? $canonicalUrl : null;
+$pageMetadata = $config['branding']['page_metadata'][$relativePath ?? ''] ?? [];
+$pageTitle = $pageMetadata['title'] ?? $config['app_name'];
 
 // Resolve logo path so it works whether assets are under /assets or /public/assets
 $siteLogo = $config['branding']['site_logo'] ?? '';
@@ -83,14 +85,14 @@ if ($headerBrandMode === 'auto') {
     <link rel="canonical" href="<?php echo htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8'); ?>">
     <?php endif; ?>
     <?php
-        $metaDescription = $config['branding']['meta_description'] ?? null;
+        $metaDescription = $pageMetadata['description'] ?? $config['branding']['meta_description'] ?? null;
         if (!$metaDescription) {
             // Fallback description using site name
             $metaDescription = ($config['app_name'] ?? 'PLE') . ' — ressources pédagogiques partagées et accès en lecture.';
         }
     ?>
     <meta name="description" content="<?php echo htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8'); ?>">
-    <title><?php echo htmlspecialchars($config['app_name'], ENT_QUOTES, 'UTF-8'); ?></title>
+    <title><?php echo htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8'); ?></title>
     <link rel="icon" type="image/png" href="<?php echo htmlspecialchars($assetBase . '/images/favicon/favicon-96x96.png', ENT_QUOTES, 'UTF-8'); ?>" sizes="96x96">
     <link rel="icon" type="image/svg+xml" href="<?php echo htmlspecialchars($assetBase . '/images/favicon/favicon.svg', ENT_QUOTES, 'UTF-8'); ?>">
     <link rel="shortcut icon" href="<?php echo htmlspecialchars($assetBase . '/images/favicon/favicon.ico', ENT_QUOTES, 'UTF-8'); ?>">
@@ -155,8 +157,17 @@ if ($headerBrandMode === 'auto') {
         }
     </style>
     <link rel="stylesheet" href="<?php echo htmlspecialchars($cssHref, ENT_QUOTES, 'UTF-8'); ?>">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/css/course-tools.css?v=<?php echo (int)filemtime(dirname(__DIR__, 2) . '/public/assets/css/course-tools.css'); ?>">
+    <?php if (($config['branding']['header_layout'] ?? 'classic') === 'compact'): ?>
+    <link rel="stylesheet" href="<?= htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8') ?>/css/compact-header.css?v=<?= (int)filemtime(dirname(__DIR__, 2) . '/public/assets/css/compact-header.css') ?>">
+    <?php endif; ?>
+    <script src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/js/student-tools.js?v=<?php echo (int)filemtime(dirname(__DIR__, 2) . '/public/assets/js/student-tools.js'); ?>" defer></script>
 </head>
 <body>
+<?php include __DIR__ . '/partials/student-tools.php'; ?>
+<?php if ($compactHeader): ?>
+<?php include __DIR__ . '/partials/compact-header.php'; ?>
+<?php else: ?>
 <header class="app-header">
     <!-- Logout button (visible only if authenticated and auth is enabled) -->
     <?php global $auth; if (isset($auth) && $auth->isEnabled() && $auth->isAuthenticated()): ?>
@@ -167,6 +178,7 @@ if ($headerBrandMode === 'auto') {
         </form>
     <?php endif; ?>
 
+    <?php if (($config['branding']['show_language_switcher'] ?? true) && count($i18n->getLanguages()) > 1): ?>
     <div class="language-switcher">
         <label for="language" class="sr-only"><?php echo htmlspecialchars($i18n->t('nav.language'), ENT_QUOTES, 'UTF-8'); ?></label>
         <select id="language" name="lang" aria-label="<?php echo htmlspecialchars($i18n->t('nav.language'), ENT_QUOTES, 'UTF-8'); ?>">
@@ -177,6 +189,7 @@ if ($headerBrandMode === 'auto') {
             <?php endforeach; ?>
         </select>
     </div>
+    <?php endif; ?>
     <div class="brand">
         <a href="<?php echo htmlspecialchars(buildUrl(['path' => '']), ENT_QUOTES, 'UTF-8'); ?>" class="brand-link brand-link--<?php echo htmlspecialchars($headerBrandMode, ENT_QUOTES, 'UTF-8'); ?>">
             <?php if ($showLogo): ?>
@@ -187,6 +200,8 @@ if ($headerBrandMode === 'auto') {
             <?php endif; ?>
         </a>
     </div>
+</header>
+<?php endif; ?>
 <main class="content-area">
     <?php echo $content; ?>
 </main>

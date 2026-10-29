@@ -36,7 +36,7 @@ class SyncController
     public function showSyncPage(): void
     {
         // Check if Google Drive is enabled
-        if (!$this->config['branding']['google_drive_enabled']) {
+        if (empty($this->config['branding']['google_drive_enabled'])) {
             http_response_code(503);
             echo "Google Drive synchronization is not enabled.";
             return;
@@ -75,7 +75,7 @@ class SyncController
         ini_set('max_execution_time', '600'); // 10 minutes
         
         // Check if Google Drive is enabled
-        if (!$this->config['branding']['google_drive_enabled']) {
+        if (empty($this->config['branding']['google_drive_enabled'])) {
             http_response_code(503);
             echo json_encode(['error' => 'Google Drive not enabled']);
             return;
@@ -126,7 +126,7 @@ class SyncController
         };
         
         // Check if Google Drive is enabled
-        if (!$this->config['branding']['google_drive_enabled']) {
+        if (empty($this->config['branding']['google_drive_enabled'])) {
             $sendEvent('error', ['message' => 'Google Drive not enabled']);
             return;
         }

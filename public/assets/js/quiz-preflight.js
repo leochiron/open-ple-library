@@ -135,6 +135,7 @@
         function start() {
             if (unavailable() || !strengthened(mode) || cfg.state.state !== 'running' || preflightPending || pulsePending || networkPending > 0 || (options.isCompletionPending && options.isCompletionPending())) { return; }
             initiated = true; cancel(); checks = null; expired = false; needsRecovery = false; fullscreenError = false; collectingUntil = null;
+            if (options.onPreparationStart) { options.onPreparationStart(); }
             stage = 'starting'; preflightPending = true; admitted = false; armed = false; render();
             var run = serial;
             request(cfg.endpoints.challenge, body()).then(function (response) {

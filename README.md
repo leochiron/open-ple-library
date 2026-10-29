@@ -6,10 +6,14 @@ A lightweight, public, read-only PHP interface for managing pedagogical librarie
 - ✅ Code in this repository is released under MIT (see `LICENSE`).
 - ⛔ Pedagogical content inside `/content` is **not** open source. Only the code ships with the repository.
 
+## Shared course tools
+
+Course portals, themed student contact, monitored quizzes, configurable assessment protection, Git submissions, review and individual feedback, and presentation order are documented in [Reusable-course-features.md](docs/Reusable-course-features.md). Deployment-specific definitions and all pedagogical content remain outside Git.
+
 ## Features
 - 📁 **File browsing** — Navigate folders of unlimited depth with breadcrumbs and back navigation
 - 👁️ **Content preview** — Inline preview for PDF, MP3, and MP4; direct download for all other files
-- 🔒 **Read-only interface** — No database, no authentication by default; content managed purely via FTP
+- 🔒 **Read-only interface** — Library content managed via files; optional quiz sessions use SQLite
 - 🎨 **Fully customizable branding** — Colors, fonts, logos, and site names via simple PHP config
 - 🌍 **Multilingual** — Full i18n support (French, English, Esperanto, Arabic); easily add more
 - ♿ **Accessible** — WCAG-compliant design with keyboard navigation and screen reader support
@@ -79,7 +83,7 @@ A lightweight, public, read-only PHP interface for managing pedagogical librarie
 ## Quick Start (Local Development)
 
 ### Prerequisites
-- PHP 8.1+ with standard libraries
+- PHP 8.1+ with standard libraries; `pdo_sqlite` for the optional quiz module
 - No external dependencies (pure PHP)
 
 ### Setup

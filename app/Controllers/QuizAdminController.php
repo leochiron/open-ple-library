@@ -90,6 +90,13 @@ class QuizAdminController
                 $this->assertCsrf();
             }
 
+            if ($subPath === '/remises' || strpos($subPath, '/remises/') === 0) {
+                $this->requireSuperAdmin();
+                (new AssessmentReviewController(new \App\Services\AssessmentReviewService(dirname(__DIR__, 2) . '/storage')))
+                    ->handle($subPath, $this->currentAdmin, $this->csrfToken(), $this->i18n, $this->config);
+                return;
+            }
+
             if ($subPath === '/' && $method === 'GET') {
                 $this->index();
             } elseif ($subPath === '/users' && $method === 'GET') {
@@ -491,8 +498,9 @@ class QuizAdminController
     private function excuseAttempt(): void
     {
         $attemptId = (int)($_POST['attempt_id'] ?? 0);
-        $this->quiz->excuseAttempt($attemptId);
-        header('Location: /quiz-admin/attempt?id=' . $attemptId);
+        $sessionId = $this->quiz->excuseAttempt($attemptId);
+        header('Location: ' . (($_POST['return_to'] ?? '') === 'session' && $sessionId !== null
+            ? '/quiz-admin/session?id=' . $sessionId : '/quiz-admin/attempt?id=' . $attemptId));
         exit;
     }
 

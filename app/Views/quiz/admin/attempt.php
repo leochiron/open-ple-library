@@ -43,6 +43,11 @@ $overQuota = (int)$attempt['incident_count'] >= $maxIncidents;
             <?php echo htmlspecialchars(formatParisTime($attempt['last_heartbeat_at']), ENT_QUOTES, 'UTF-8'); ?>
         </p>
         <div class="quiz-admin-actions">
+            <form method="post" action="/quiz-admin/attempt/excuse-all">
+                <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
+                <input type="hidden" name="attempt_id" value="<?php echo (int)$attempt['id']; ?>">
+                <button class="btn ghost" type="submit"<?php echo (int)$attempt['incident_count'] === 0 ? ' disabled' : ''; ?>><?php echo htmlspecialchars($i18n->t('quiz.admin.clear_alerts'), ENT_QUOTES, 'UTF-8'); ?></button>
+            </form>
             <a class="btn primary" href="/quiz-admin/report?id=<?php echo (int)$attempt['id']; ?>" target="_blank"><?php echo htmlspecialchars($i18n->t('quiz.admin.action_report'), ENT_QUOTES, 'UTF-8'); ?></a>
             <a class="btn ghost" href="/quiz-admin/session?id=<?php echo (int)$session['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.admin.back_session'), ENT_QUOTES, 'UTF-8'); ?></a>
             <a class="btn ghost" href="/quiz-admin/history?id=<?php echo (int)$session['id']; ?>&amp;attempt_id=<?php echo (int)$attempt['id']; ?>"><?php echo htmlspecialchars($i18n->t('quiz.history.title'), ENT_QUOTES, 'UTF-8'); ?></a>

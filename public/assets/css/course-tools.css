@@ -1,0 +1,26 @@
+/* Shared tools inherit the deployment theme; no school-specific palette. */
+.compact-header{background:var(--background,#fff);border-bottom:3px solid var(--primary);color:var(--text)}
+.compact-header__inner{box-sizing:border-box;max-width:1200px;min-height:100px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:18px}
+.compact-header__brand{display:flex;align-items:center;gap:15px;flex:1;min-width:0;color:var(--text);text-decoration:none}.compact-header__brand:hover{text-decoration:none}
+.compact-header__logo{display:block;width:36px;height:46px;object-fit:contain;flex:none}.compact-header__identity{display:flex;flex-direction:column;min-width:0}
+.compact-header__url{display:block;font-family:var(--font-heading,sans-serif);font-size:40px;font-weight:700;line-height:1.1;letter-spacing:-.025em;color:var(--secondary,var(--primary));white-space:nowrap}
+.compact-header__title{display:block;margin-top:5px;font-size:14px;line-height:1.3;color:var(--text);opacity:.72}
+.compact-header__actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;flex:none}.compact-header__actions form{margin:0}
+.compact-header__quiz,.compact-header__action{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:10px 16px;border:1px solid var(--secondary,var(--primary));border-radius:9px;font:inherit;font-size:14px;font-weight:600;line-height:1.2;text-decoration:none;cursor:pointer}
+.compact-header__quiz{background:var(--secondary,var(--primary));color:#fff}.compact-header__quiz:hover{background:var(--tertiary,var(--primary));color:#fff;text-decoration:none}.compact-header__action{background:var(--background,#fff);color:var(--text)}
+.compact-header__language{max-width:110px;padding:10px;border:1px solid var(--primary);border-radius:9px;background:var(--background,#fff);color:var(--text);font:inherit}
+.compact-header a:focus-visible,.compact-header button:focus-visible,.compact-header select:focus-visible{outline:3px solid var(--primary);outline-offset:4px}
+@media(max-width:600px){.compact-header__inner{min-height:82px;padding:16px;gap:12px}.compact-header__brand{gap:9px}.compact-header__logo{width:25px;height:35px}.compact-header__url{font-size:22px}.compact-header__title{font-size:12px;margin-top:4px}.compact-header__quiz,.compact-header__action{padding:10px 12px;font-size:13px}}
+@media(max-width:380px){.compact-header__inner{gap:8px}.compact-header__logo{width:23px;height:34px}.compact-header__url{font-size:18px}.compact-header__title{font-size:11px}}
+.student-tools{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;max-width:1200px;margin:auto;padding:18px 24px}
+.student-tools a:last-child{margin-left:auto}.student-tools .btn{font:inherit;cursor:pointer}
+.site-address-banner{background:var(--primary);padding:26px 20px;text-align:center}
+.site-address-banner a{color:#fff;font-family:var(--font-heading,sans-serif);font-size:clamp(1.5rem,5.5vw,4rem);font-weight:700;line-height:1.2;text-decoration:none;overflow-wrap:anywhere}
+.site-address-banner a:focus-visible{outline:3px solid var(--structure);outline-offset:6px}
+.student-contact-dialog{box-sizing:border-box;width:min(480px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;border:1px solid var(--primary);border-radius:var(--radius,12px);padding:28px;background:var(--background,#fff);color:var(--text);box-shadow:var(--shadow)}
+.student-contact-dialog::backdrop{background:#0008}.student-contact-dialog h2{margin-top:12px}.student-contact-dialog p{line-height:1.6}
+.student-contact-close{display:flex;justify-content:flex-end}.student-contact-close button{font-size:1.5rem;cursor:pointer}
+.student-contact-email{display:block;margin:20px 0;font-size:clamp(1rem,4vw,1.3rem);color:var(--primary);font-weight:700;overflow-wrap:anywhere}
+.course-portal{color:var(--text);line-height:1.65}.course-portal h1{font-size:clamp(1.7rem,4vw,2.6rem);line-height:1.2}.course-portal h2{margin-top:28px}.portal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:16px;margin:20px 0}.portal-card{padding:20px;border:1px solid var(--primary);border-radius:var(--radius,12px);background:var(--background,#fff)}.portal-card h2,.portal-card h3{margin-top:0}.portal-links{display:flex;gap:12px;flex-wrap:wrap}.course-portal a{color:var(--primary)}.course-portal a:focus-visible,.student-tools a:focus-visible,.student-tools button:focus-visible{outline:3px solid var(--primary);outline-offset:3px}
+.presentation-draw-list{padding-left:30px}.presentation-draw-list li{padding:10px;border-bottom:1px solid currentColor}.presentation-draw-form{display:grid;gap:14px;max-width:480px}.presentation-draw-form input{padding:10px;font:inherit}.presentation-draw-error{color:var(--text);border-left:4px solid var(--primary);padding:12px}
+@media(max-width:600px){.student-tools{padding:12px 16px}.student-contact-dialog{padding:20px}.site-address-banner{padding:22px 14px}}

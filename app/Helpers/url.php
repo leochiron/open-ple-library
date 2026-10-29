@@ -82,6 +82,7 @@ function quizEventDuration(array $event): string
 
 function quizEventLabel(array $event, App\Services\I18nService $i18n): string
 {
+    if (!empty($event['preparation_event'])) { return $i18n->t('quiz.journal.preparation'); }
     $label = (string)$event['event_type'];
     if ($label === 'away_start') { $label = $i18n->t('quiz.journal.start'); }
     elseif (isset($event['absence_uid'])) { $label = $i18n->t('quiz.journal.return'); }

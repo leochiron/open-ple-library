@@ -261,6 +261,7 @@ SQL);
             $this->ensureColumn('quiz_events', $column, 'TEXT');
         }
         $this->ensureColumn('quiz_events', 'duration_ms', 'INTEGER');
+        $this->ensureColumn('quiz_events', 'preparation_event', 'INTEGER NOT NULL DEFAULT 0');
         $this->ensureColumn('quiz_events', 'dropped_events', 'INTEGER');
         $this->pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_events_uid ON quiz_events(attempt_id, event_uid) WHERE event_uid IS NOT NULL');
         $this->pdo->exec('CREATE INDEX IF NOT EXISTS idx_quiz_events_absence ON quiz_events(attempt_id, absence_uid)');

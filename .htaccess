@@ -5,7 +5,7 @@
     RewriteBase /
     
     # Prevent direct access to certain directories
-    RewriteRule ^(app|storage|content|\.git)(/|$) - [F,L]
+    RewriteRule ^(app|storage|content|_CTX|\.git)(/|$) - [F,L]
 
     # Canonical LLM guidance file (the proposed standard is /llms.txt).
     RewriteRule ^llm\.txt$ /llms.txt [R=301,L,NC]

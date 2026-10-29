@@ -129,6 +129,9 @@ try {
     exit;
 }
 
+$compatibilityRedirect = App\Services\RequestRedirectService::resolve($_SERVER['REQUEST_URI'] ?? '/', $_SERVER['REQUEST_METHOD'] ?? 'GET', $config['branding']['redirects'] ?? []);
+if ($compatibilityRedirect !== null) { header('Location: ' . $compatibilityRedirect['location'], true, $compatibilityRedirect['status']); exit; }
+
 // Keep canonical SEO files public even when library password protection is enabled.
 if ($earlyPath === '/robots.txt' || $earlyPath === '/sitemap.xml') {
     try {
@@ -244,6 +247,14 @@ try {
     $googleDrive = new GoogleDriveService($config);
 } catch (Throwable $exception) {
     $renderIncident($exception, 'Library service bootstrap failure');
+    exit;
+}
+
+// Enforce configured assessment gates before raw resources or archives.
+App\Services\CourseAccessService::enforce($security, $i18n, $config);
+
+if ($earlyPath === '/presentation-draw') {
+    (new App\Controllers\PresentationDrawController())->handle(dirname(__DIR__) . '/storage', $i18n, $config);
     exit;
 }
 
