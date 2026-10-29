@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 $branding = $config['branding'];
+$compactHeader = ($branding['header_layout'] ?? 'classic') === 'compact';
 $contactEmail = $branding['student_contact_email'] ?? '';
 $showContact = is_string($contactEmail) && filter_var($contactEmail, FILTER_VALIDATE_EMAIL);
 $showQuiz = ($branding['show_student_quiz_link'] ?? true) && \App\Services\ApplicationProfile::fromBranding($branding)->quizEnabled();
@@ -8,7 +9,7 @@ $displayOrigin = (string)($config['public_base_url'] ?? '');
 $displayHost = parse_url($displayOrigin, PHP_URL_HOST) ?: '';
 $escapeTool = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 ?>
-<?php if ($showContact || $showQuiz): ?>
+<?php if (!$compactHeader && ($showContact || $showQuiz)): ?>
 <nav class="student-tools" aria-label="Accès utiles">
     <?php if ($showContact): ?><button type="button" class="btn ghost" id="student-contact-open" aria-haspopup="dialog">✉ Me contacter</button><?php endif; ?>
     <?php if ($showQuiz): ?><a class="btn ghost" href="/quiz">Quiz</a><?php endif; ?>
@@ -25,6 +26,6 @@ $escapeTool = static fn(string $value): string => htmlspecialchars($value, ENT_Q
     <p id="student-contact-status" role="status" aria-live="polite"></p>
 </dialog>
 <?php endif; ?>
-<?php if (!empty($branding['display_site_address']) && $displayHost !== ''): ?>
+<?php if (!$compactHeader && !empty($branding['display_site_address']) && $displayHost !== ''): ?>
 <div class="site-address-banner"><a href="<?= $escapeTool($displayOrigin) ?>"><?= $escapeTool($displayHost) ?></a></div>
 <?php endif; ?>

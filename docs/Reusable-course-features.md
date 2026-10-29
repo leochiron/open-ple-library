@@ -16,6 +16,8 @@ Optional branding keys:
 'student_contact_email' => 'teacher@example.org',
 'display_site_address' => true,
 'show_student_quiz_link' => true,
+'header_layout' => 'compact',
+'show_language_switcher' => false,
 'portal_only_paths' => [],
 'page_metadata' => [
     'institution/module' => ['title' => 'Module title', 'description' => 'Module description'],
@@ -23,6 +25,8 @@ Optional branding keys:
 ```
 
 The address banner uses `public_base_url`. Contact, banner and new portal components inherit the site's CSS variables. There is no institution-specific color scheme in these components.
+
+`header_layout: compact` combines the logo, public hostname, secondary site title and Quiz link into one header. The hostname uses 40 px type on desktop, with a responsive size on mobile. The default `classic` layout remains available. A language picker is displayed only when enabled and more than one language is configured. For a French-only deployment, also set `default_language` to `fr` and `available_languages` to `['fr']` so an old language cookie or link cannot switch the interface.
 
 An `_intro.html` or `_intro.md` in a content folder adds a course portal without renaming existing document URLs. HTML takes precedence. Shared CSS classes: `course-portal`, `portal-grid`, `portal-card`, `portal-links`. An explicitly listed `portal_only_paths` folder hides the automatic file listing and toolbar; the default retains them. Students should receive published presentations or support PDFs, not private slide preparation sources.
 

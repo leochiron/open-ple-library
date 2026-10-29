@@ -32,6 +32,8 @@ return [
     'student_contact_email' => null,
     'display_site_address' => false,
     'show_student_quiz_link' => true,
+    'header_layout' => 'classic', // classic | compact (one row, prominent public hostname)
+    'show_language_switcher' => true, // Also hidden automatically when only one language is enabled.
     'portal_only_paths' => [], // Hide the file listing on explicitly selected portal paths.
     'redirects' => [], // Private compatibility aliases; see docs/Reusable-course-features.md.
     'page_metadata' => [], // path => ['title' => '...', 'description' => '...']

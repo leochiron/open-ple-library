@@ -162,6 +162,9 @@ if ($headerBrandMode === 'auto') {
 </head>
 <body>
 <?php include __DIR__ . '/partials/student-tools.php'; ?>
+<?php if ($compactHeader): ?>
+<?php include __DIR__ . '/partials/compact-header.php'; ?>
+<?php else: ?>
 <header class="app-header">
     <!-- Logout button (visible only if authenticated and auth is enabled) -->
     <?php global $auth; if (isset($auth) && $auth->isEnabled() && $auth->isAuthenticated()): ?>
@@ -172,6 +175,7 @@ if ($headerBrandMode === 'auto') {
         </form>
     <?php endif; ?>
 
+    <?php if (($config['branding']['show_language_switcher'] ?? true) && count($i18n->getLanguages()) > 1): ?>
     <div class="language-switcher">
         <label for="language" class="sr-only"><?php echo htmlspecialchars($i18n->t('nav.language'), ENT_QUOTES, 'UTF-8'); ?></label>
         <select id="language" name="lang" aria-label="<?php echo htmlspecialchars($i18n->t('nav.language'), ENT_QUOTES, 'UTF-8'); ?>">
@@ -182,6 +186,7 @@ if ($headerBrandMode === 'auto') {
             <?php endforeach; ?>
         </select>
     </div>
+    <?php endif; ?>
     <div class="brand">
         <a href="<?php echo htmlspecialchars(buildUrl(['path' => '']), ENT_QUOTES, 'UTF-8'); ?>" class="brand-link brand-link--<?php echo htmlspecialchars($headerBrandMode, ENT_QUOTES, 'UTF-8'); ?>">
             <?php if ($showLogo): ?>
@@ -193,6 +198,7 @@ if ($headerBrandMode === 'auto') {
         </a>
     </div>
 </header>
+<?php endif; ?>
 <main class="content-area">
     <?php echo $content; ?>
 </main>
