@@ -28,6 +28,14 @@ return [
     'trust_forwarded_proto' => false,
     'trusted_proxy_ips' => [], // e.g. ['127.0.0.1', '10.0.0.10']
 
+    // Shared student tools (all styling inherits colors below).
+    'student_contact_email' => null,
+    'display_site_address' => false,
+    'show_student_quiz_link' => true,
+    'portal_only_paths' => [], // Hide the file listing on explicitly selected portal paths.
+    'redirects' => [], // Private compatibility aliases; see docs/Reusable-course-features.md.
+    'page_metadata' => [], // path => ['title' => '...', 'description' => '...']
+
     // Site identity
     'site_name' => 'My PLE Library',
     'site_logo' => '/assets/images/logo.png',  // Path to your logo file

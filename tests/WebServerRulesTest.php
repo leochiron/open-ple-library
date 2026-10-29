@@ -8,7 +8,9 @@ $root = dirname(__DIR__);
 $rootRules = (string)file_get_contents($root . '/.htaccess');
 $publicRules = (string)file_get_contents($root . '/public/.htaccess');
 $contentRulesPath = $root . '/content/.htaccess';
-$contentRules = (string)file_get_contents($contentRulesPath);
+$contentRules = is_file($contentRulesPath)
+    ? (string)file_get_contents($contentRulesPath)
+    : (string)file_get_contents($root . '/app/Config/content.htaccess');
 $llmsRoot = (string)file_get_contents($root . '/llms.txt');
 $llmsPublic = (string)file_get_contents($root . '/public/llms.txt');
 $contentRulesTemplate = (string)file_get_contents($root . '/app/Config/content.htaccess');
@@ -21,7 +23,7 @@ assertSameValue(false, is_file($root . '/public/robots.txt'), 'No public robots 
 assertSameValue(false, is_file($root . '/sitemap.xml'), 'No root static sitemap may contain a stale domain');
 assertSameValue(false, is_file($root . '/public/sitemap.xml'), 'No public static sitemap may contain a stale domain');
 
-$denyPosition = strpos($rootRules, 'RewriteRule ^(app|storage|content|\.git)(/|$) - [F,L]');
+$denyPosition = strpos($rootRules, 'RewriteRule ^(app|storage|content|_CTX|\.git)(/|$) - [F,L]');
 $rootBypassPosition = strpos($rootRules, 'RewriteCond %{REQUEST_FILENAME} -f [OR]');
 assertSameValue(true, $denyPosition !== false, 'Repository rules must deny sensitive directories');
 assertSameValue(true, $rootBypassPosition !== false, 'Repository rules must contain the real-file bypass');
@@ -49,7 +51,7 @@ assertSameValue(true, strpos($publicRules, 'LICENSE|llms\\.txt|(?!robots\\.txt$)
 assertSameValue(true, strpos($rootRules, 'Header set X-Robots-Tag "noindex"') !== false, 'Root static pedagogical files must be noindex');
 assertSameValue(true, strpos($publicRules, 'Header set X-Robots-Tag "noindex"') !== false, 'Public static pedagogical files must be noindex');
 
-assertSameValue(true, is_readable($contentRulesPath), 'PHP must retain filesystem read access to the content protection file');
+assertSameValue(true, is_readable($contentRulesPath) || is_readable($root . '/app/Config/content.htaccess'), 'Content protection is readable from the deployment or its tracked template');
 assertSameValue($contentRulesTemplate, $contentRules, 'Deployed content rules must match the canonical sync-safe template');
 assertSameValue(true, strpos($contentRules, '<IfModule mod_rewrite.c>') !== false, 'Content rules must use the project rewrite module');
 assertSameValue(true, strpos($contentRules, 'RewriteEngine On') !== false, 'Content rules must enable local rewriting');

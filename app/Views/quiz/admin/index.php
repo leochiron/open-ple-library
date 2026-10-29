@@ -37,6 +37,7 @@ $stateLabels = [
         <div class="quiz-admin-actions">
             <span><?php echo htmlspecialchars($admin['display_name'], ENT_QUOTES, 'UTF-8'); ?></span>
             <?php if ($admin['role'] === 'super_admin'): ?>
+                <a class="btn ghost" href="/quiz-admin/remises">Remises des CC</a>
                 <a class="btn ghost" href="/quiz-admin/users">Utilisateurs</a>
                 <a class="btn ghost" href="<?php echo $showAll ? '/quiz-admin' : '/quiz-admin?scope=all'; ?>">
                     <?php echo $showAll ? 'Mes quiz' : 'Tous les quiz'; ?>

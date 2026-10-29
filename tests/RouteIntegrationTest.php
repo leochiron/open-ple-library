@@ -271,6 +271,17 @@ function createContentFixtures(string $contentPath): void
 }
 
 try {
+    // Never let integration requests read or migrate a developer's live database.
+    $sourceRoot = $root;
+    $root = $temporaryRoot . DIRECTORY_SEPARATOR . 'application';
+    mkdir($root, 0700, true);
+    copyTestDirectory($sourceRoot . '/app', $root . '/app', $sourceRoot . '/app/Config/branding.php');
+    copyTestDirectory($sourceRoot . '/public', $root . '/public');
+    mkdir($root . '/tests', 0700, true);
+    copy($sourceRoot . '/tests/HttpTestRouter.php', $root . '/tests/HttpTestRouter.php');
+    foreach (['index.php', 'llms.txt', 'LICENSE', 'robots.txt'] as $fixtureFile) {
+        copy($sourceRoot . '/' . $fixtureFile, $root . '/' . $fixtureFile);
+    }
     $examplePath = $root . '/app/Config/branding.example.php';
     $documentRoots = [
         'public' => [$root . '/public', $root . '/public/index.php'],

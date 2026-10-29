@@ -66,6 +66,8 @@ class LibraryController
                 'relativePath' => $relativePath,
                 'entries' => $entries,
                 'introHtml' => $this->renderFolderIntro($absolutePath),
+                'feedback' => \App\Services\AssessmentFeedbackService::forFolder($relativePath, dirname(__DIR__, 2) . '/storage'),
+                'submission' => \App\Services\AssessmentSubmissionService::forFolder($relativePath, dirname(__DIR__, 2) . '/storage'),
                 'breadcrumbs' => $this->buildBreadcrumbs($relativePath),
                 'parentPath' => $this->getParentPath($relativePath),
                 'title' => $this->i18n->t('folder.heading'),

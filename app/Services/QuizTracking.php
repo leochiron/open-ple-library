@@ -262,6 +262,18 @@ trait QuizTracking
         }
     }
 
+    /** A bounded server-issued preparation, bound to this cookie and document only. */
+    private function trackingPreparationActive(array $session, array $attempt): bool
+    {
+        if (!self::trackingStrengthened($session['tracking_mode'])) { return false; }
+        try { $context = $this->trackingBoundContext($session, $attempt); }
+        catch (RuntimeException $e) { return false; }
+        $stmt = $this->db->prepare("SELECT issued_at FROM quiz_tracking_challenges WHERE context_id=:id AND kind='preflight' AND consumed_at IS NULL AND terminated_at IS NULL AND expires_at>:now AND settings_revision=:revision ORDER BY id DESC LIMIT 1");
+        $stmt->execute(['id' => $context['id'], 'now' => $this->trackingClock(), 'revision' => $session['settings_revision']]);
+        $issued = $stmt->fetchColumn();
+        return is_string($issued) && $this->trackingClock() < $this->toTimestamp($issued) + 45;
+    }
+
     private function trackingExpireProof(array $context): array
     {
         if($context['proof_status']==='healthy' && $this->trackingClock()>=(int)$context['proof_until']) {

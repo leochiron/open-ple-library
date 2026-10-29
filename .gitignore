@@ -9,9 +9,8 @@ Thumbs.db
 /storage/*
 !/storage/.gitkeep
 storage/google-credentials.json
-/content/*
-!/content/.gitkeep
-!/content/.htaccess
+/content/
+/_CTX/
 /public/assets/css/main.css.map
 /public/assets/images/logo.png
 /app/Config/branding.php

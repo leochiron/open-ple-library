@@ -26,6 +26,8 @@ $cssHref = $assetBase . '/css/main.css?v=' . $cssVersion;
 $styleDebug = isset($_GET['style_debug']) && (string)$_GET['style_debug'] === '1';
 $seoIndexable = isset($seoIndexable) && $seoIndexable === true;
 $canonicalUrl = isset($canonicalUrl) && is_string($canonicalUrl) && $canonicalUrl !== '' ? $canonicalUrl : null;
+$pageMetadata = $config['branding']['page_metadata'][$relativePath ?? ''] ?? [];
+$pageTitle = $pageMetadata['title'] ?? $config['app_name'];
 
 // Resolve logo path so it works whether assets are under /assets or /public/assets
 $siteLogo = $config['branding']['site_logo'] ?? '';
@@ -83,14 +85,14 @@ if ($headerBrandMode === 'auto') {
     <link rel="canonical" href="<?php echo htmlspecialchars($canonicalUrl, ENT_QUOTES, 'UTF-8'); ?>">
     <?php endif; ?>
     <?php
-        $metaDescription = $config['branding']['meta_description'] ?? null;
+        $metaDescription = $pageMetadata['description'] ?? $config['branding']['meta_description'] ?? null;
         if (!$metaDescription) {
             // Fallback description using site name
             $metaDescription = ($config['app_name'] ?? 'PLE') . ' — ressources pédagogiques partagées et accès en lecture.';
         }
     ?>
     <meta name="description" content="<?php echo htmlspecialchars($metaDescription, ENT_QUOTES, 'UTF-8'); ?>">
-    <title><?php echo htmlspecialchars($config['app_name'], ENT_QUOTES, 'UTF-8'); ?></title>
+    <title><?php echo htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8'); ?></title>
     <link rel="icon" type="image/png" href="<?php echo htmlspecialchars($assetBase . '/images/favicon/favicon-96x96.png', ENT_QUOTES, 'UTF-8'); ?>" sizes="96x96">
     <link rel="icon" type="image/svg+xml" href="<?php echo htmlspecialchars($assetBase . '/images/favicon/favicon.svg', ENT_QUOTES, 'UTF-8'); ?>">
     <link rel="shortcut icon" href="<?php echo htmlspecialchars($assetBase . '/images/favicon/favicon.ico', ENT_QUOTES, 'UTF-8'); ?>">
@@ -155,8 +157,11 @@ if ($headerBrandMode === 'auto') {
         }
     </style>
     <link rel="stylesheet" href="<?php echo htmlspecialchars($cssHref, ENT_QUOTES, 'UTF-8'); ?>">
+    <link rel="stylesheet" href="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/css/course-tools.css?v=<?php echo (int)filemtime(dirname(__DIR__, 2) . '/public/assets/css/course-tools.css'); ?>">
+    <script src="<?php echo htmlspecialchars($assetBase, ENT_QUOTES, 'UTF-8'); ?>/js/student-tools.js?v=<?php echo (int)filemtime(dirname(__DIR__, 2) . '/public/assets/js/student-tools.js'); ?>" defer></script>
 </head>
 <body>
+<?php include __DIR__ . '/partials/student-tools.php'; ?>
 <header class="app-header">
     <!-- Logout button (visible only if authenticated and auth is enabled) -->
     <?php global $auth; if (isset($auth) && $auth->isEnabled() && $auth->isAuthenticated()): ?>
@@ -187,6 +192,7 @@ if ($headerBrandMode === 'auto') {
             <?php endif; ?>
         </a>
     </div>
+</header>
 <main class="content-area">
     <?php echo $content; ?>
 </main>

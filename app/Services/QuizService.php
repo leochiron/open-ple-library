@@ -636,7 +636,7 @@ class QuizService
 
     private function projectedEventFilter(): string
     {
-        return " AND e.event_type IN ('hidden', 'blur', 'fullscreen_exit', 'leave', 'reload', 'devtools', 'copy', 'paste', 'print') ";
+        return " AND e.preparation_event = 0 AND e.event_type IN ('hidden', 'blur', 'fullscreen_exit', 'leave', 'reload', 'devtools', 'copy', 'paste', 'print') ";
     }
 
     /**
@@ -1102,12 +1102,14 @@ class QuizService
                 return array_merge([
                     'incident_count' => (int)$currentAttempt['incident_count'], 'status' => $currentAttempt['status'],
                     'is_incident' => (int)$event['is_incident'] === 1, 'finished' => !empty($currentAttempt['finished_at']),
+                    'preparation_event' => !empty($event['preparation_event']),
                     'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => true,
                 ],$access);
             }
             $eventId = (int)$this->db->lastInsertId();
+            $start = null;
             if ($metadata['related_event_uid'] !== null) {
-                $related = $this->db->prepare('SELECT event_type, absence_uid, source FROM quiz_events WHERE attempt_id = :aid AND event_uid = :uid');
+                $related = $this->db->prepare('SELECT event_type, absence_uid, source, preparation_event FROM quiz_events WHERE attempt_id = :aid AND event_uid = :uid');
                 $related->execute(['aid' => (int)$attempt['id'], 'uid' => $metadata['related_event_uid']]);
                 $start = $related->fetch();
                 if ($start && ($start['event_type'] !== 'away_start' || $start['absence_uid'] !== $metadata['absence_uid'] || $start['source'] !== $metadata['source'])) { throw new RuntimeException('invalid_event_relation'); }
@@ -1121,6 +1123,13 @@ class QuizService
             }
             if (in_array($type, ['finish', 'resume'], true) && $session['state'] !== 'running') {
                 throw new RuntimeException('session_not_running');
+            }
+            // A real departure opened before preparation remains ordinary on return.
+            $preparationEvent = in_array($type, ['away_start', 'hidden', 'blur', 'fullscreen_exit'], true)
+                && ((!empty($start['preparation_event'])) || (!$start && $this->trackingPreparationActive($session, $currentAttempt)));
+            if ($preparationEvent) {
+                $prep = $this->db->prepare('UPDATE quiz_events SET preparation_event = 1 WHERE id = :id');
+                $prep->execute(['id' => $eventId]);
             }
             if ($metadata['absence_uid'] !== null) {
                 $group = $this->db->prepare('SELECT MAX(excused) AS excused, MIN(tracking_generation) AS generation, MAX(tracking_generation) AS last_generation FROM quiz_events WHERE attempt_id = :aid AND absence_uid = :absence');
@@ -1136,7 +1145,7 @@ class QuizService
                 $read->execute(['id' => $eventId]);
                 $isIncident = (int)$read->fetchColumn() === 1;
             } else {
-                $isIncident = $this->eventIsIncident($session, $type, $awaySeconds, $metadata['duration_ms']);
+                $isIncident = !$preparationEvent && $this->eventIsIncident($session, $type, $awaySeconds, $metadata['duration_ms']);
             }
             if ($isIncident && $metadata['absence_uid'] === null) {
                 $stmt = $this->db->prepare('UPDATE quiz_events SET is_incident = 1 WHERE id = :id');
@@ -1157,7 +1166,7 @@ class QuizService
             $currentAttempt = $this->getAttempt((int)$attempt['id']);
             $access = $trackingObservation ? ['settings_revision'=>(int)$session['settings_revision']] : ['access_allowed'=>$this->studentAccessAllowed((int)$session['id'], (int)$currentAttempt['student_id'])];
             $this->db->commit();
-            return array_merge($result, ['is_incident' => $isIncident, 'finished' => !empty($currentAttempt['finished_at']), 'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => false,
+            return array_merge($result, ['is_incident' => $isIncident, 'preparation_event' => $preparationEvent, 'finished' => !empty($currentAttempt['finished_at']), 'attempt_id' => (int)$attempt['id'], 'event_uid' => $metadata['event_uid'], 'duplicate' => false,
                 ]+$access);
         } catch (Throwable $exception) {
             if ($this->db->inTransaction()) { $this->db->rollBack(); }
@@ -1190,7 +1199,7 @@ class QuizService
         $update = $this->db->prepare('UPDATE quiz_events SET is_incident = :incident WHERE id = :id');
         $qualified = [];
         foreach ($stmt->fetchAll() as $event) {
-            $incident = $this->eventIsIncident($session, (string)$event['event_type'], (int)$event['away_seconds'], $event['duration_ms'] !== null ? (int)$event['duration_ms'] : null);
+            $incident = empty($event['preparation_event']) && $this->eventIsIncident($session, (string)$event['event_type'], (int)$event['away_seconds'], $event['duration_ms'] !== null ? (int)$event['duration_ms'] : null);
             if ($event['absence_uid'] !== null) {
                 $group = $event['attempt_id'] . ':' . $event['absence_uid'];
                 if (isset($qualified[$group])) { $incident = false; }
@@ -1291,6 +1300,9 @@ class QuizService
             $payload['incident_count'] = (int)$attempt['incident_count'];
             $payload['attempt_status'] = $attempt['status'];
             $payload['finished'] = !empty($attempt['finished_at']);
+            // A receipt remains readable after monitoring proof expires. This grants
+            // neither questionnaire access nor permission to resume a finished attempt.
+            $payload['completion_recorded'] = $payload['finished'] && $this->projectedAccessAllowed((int)$session['id'], (int)$attempt['student_id']);
             $payload['access_allowed'] = $this->studentAccessAllowed((int)$session['id'], (int)$attempt['student_id']);
             $payload['tracking_mode'] = $session['tracking_mode'];
             $payload['access_until'] = null;

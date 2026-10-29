@@ -10,7 +10,11 @@ declare(strict_types=1);
 /** @var App\Services\I18nService $i18n */
 
 $introHtml = $introHtml ?? '';
+$portalOnly = !empty($config['branding']['portal_only_paths']) && in_array($relativePath, $config['branding']['portal_only_paths'], true);
 ?>
+<?php if (($feedback ?? null) !== null): ?>
+    <?php include __DIR__ . '/assessment-feedback.php'; ?>
+<?php elseif (!$portalOnly): ?>
 <section class="toolbar">
     <div class="breadcrumbs" aria-label="breadcrumbs">
         <?php foreach ($breadcrumbs as $index => $crumb): ?>
@@ -33,12 +37,15 @@ $introHtml = $introHtml ?? '';
     </div>
 </section>
 
-<?php if ($introHtml !== ''): ?>
+<?php endif; ?>
+
+<?php if ($introHtml !== '' && ($feedback['result'] ?? null) === null): ?>
     <section class="card folder-intro" aria-label="<?php echo htmlspecialchars($i18n->t('folder.intro'), ENT_QUOTES, 'UTF-8'); ?>">
         <?php echo $introHtml; /* trusted teacher content: _intro.html fragment as-is, or rendered _intro.md */ ?>
     </section>
 <?php endif; ?>
 
+<?php if (!($feedback['is_returns'] ?? false) && !$portalOnly): ?>
 <section class="card">
     <header class="card-header">
         <h1 class="sr-only">
@@ -112,3 +119,9 @@ $introHtml = $introHtml ?? '';
         </div>
     <?php endif; ?>
 </section>
+
+<?php endif; ?>
+
+<?php if (($submission ?? null) !== null): ?>
+    <?php include __DIR__ . '/assessment-submission.php'; ?>
+<?php endif; ?>
